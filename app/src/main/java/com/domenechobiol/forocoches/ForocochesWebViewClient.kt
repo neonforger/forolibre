@@ -19,6 +19,10 @@ class ForocochesWebViewClient(
         context.assets.open("adblock.css").bufferedReader().readText()
     }
 
+    private val settingsPanelJs: String by lazy {
+        context.assets.open("settings-panel.js").bufferedReader().readText()
+    }
+
     override fun shouldInterceptRequest(
         view: WebView,
         request: WebResourceRequest
@@ -33,7 +37,13 @@ class ForocochesWebViewClient(
         injectCss(view, adblockCss)
         injectIgnoredUsersGlobals(view)
         view.evaluateJavascript(contentJs, null)
+        if (isProfilePage(url)) {
+            view.evaluateJavascript(settingsPanelJs, null)
+        }
     }
+
+    private fun isProfilePage(url: String): Boolean =
+        url.contains("profile.php") && !url.contains("do=ignorelist")
 
     private fun injectCss(view: WebView, css: String) {
         val escaped = css

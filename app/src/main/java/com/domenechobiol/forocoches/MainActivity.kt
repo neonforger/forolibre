@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         }
         repo = IgnoreListRepository(this)
         webView.webViewClient = ForocochesWebViewClient(this, repo)
+        webView.addJavascriptInterface(SettingsBridge(repo), "Android")
     }
 
     private fun fetchIgnoreListIfNeeded() {
