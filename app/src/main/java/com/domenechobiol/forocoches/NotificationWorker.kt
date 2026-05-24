@@ -42,6 +42,9 @@ class NotificationWorker(
         val lastNotif = repo.getLastNotifCount()
         android.util.Log.d("FC_NOTIF", "pmCount=$pmCount lastPm=$lastPm notifCount=$notifCount lastNotif=$lastNotif")
 
+        val spanMatches = Regex("""<span class="user-notifications">(\d+)</span>""", RegexOption.IGNORE_CASE).findAll(html).map { it.groupValues[1] }.toList()
+        android.util.Log.d("FC_NOTIF", "user-notifications spans found: $spanMatches")
+
         val pmIdx = html.indexOf("private.php")
         if (pmIdx >= 0) android.util.Log.d("FC_NOTIF", "pm_html: ${html.substring(pmIdx, minOf(html.length, pmIdx + 600))}")
 

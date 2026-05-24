@@ -11,13 +11,8 @@ class NotificationFetcher {
         private const val BASE_URL = "https://forocoches.com/foro"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
-        // FC usa <span class="user-notifications">N</span> dentro del menú de cabecera
-        private val PM_BADGE = Regex("""href="private\.php"[\s\S]{0,600}?<span class="user-notifications">(\d+)</span>""", RegexOption.IGNORE_CASE)
-        private val PM_PARENS = Regex("""href="private\.php"[\s\S]{0,600}?\((\d+)\s*nuevo""", RegexOption.IGNORE_CASE)
-
-        // Notificaciones generales — mismo patrón, anchored al enlace de menciones
-        private val NOTIF_BADGE = Regex("""tab=mentions[\s\S]{0,600}?<span class="user-notifications">(\d+)</span>""", RegexOption.IGNORE_CASE)
-        private val NOTIF_BULLET = Regex("""(?:menciones|mentions)[^"']*['"][\s\S]{0,600}?<span class="user-notifications">(\d+)</span>""", RegexOption.IGNORE_CASE)
+        // FC usa <span class="user-notifications">N</span>: primero PMs, segundo menciones
+        private val COUNT_SPAN = Regex("""<span class="user-notifications">(\d+)</span>""", RegexOption.IGNORE_CASE)
 
         // Thread más reciente de un usuario
         private val THREAD_ID = Regex("""showthread\.php\?t=(\d+)""")
@@ -31,17 +26,16 @@ class NotificationFetcher {
         get("$BASE_URL/search.php?do=finduser&userid=$userId&contenttype=vBForum_Thread&showposts=0", cookie)
     }
 
-    fun parsePmCount(html: String): Int {
-        PM_BADGE.find(html)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-        PM_PARENS.find(html)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-        return 0
+    fun parseAllCounts(html: String): Pair<Int, Int> {
+        val matches = COUNT_SPAN.findAll(html).toList()
+        val pm = matches.getOrNull(0)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val notif = matches.getOrNull(1)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        return Pair(pm, notif)
     }
 
-    fun parseNotifCount(html: String): Int {
-        NOTIF_BADGE.find(html)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-        NOTIF_BULLET.find(html)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-        return 0
-    }
+    fun parsePmCount(html: String): Int = parseAllCounts(html).first
+
+    fun parseNotifCount(html: String): Int = parseAllCounts(html).second
 
     fun parseLatestThreadId(html: String): String? =
         THREAD_ID.find(html)?.groupValues?.get(1)
