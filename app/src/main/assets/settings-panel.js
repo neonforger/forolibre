@@ -83,11 +83,11 @@
       ' · ' + remaining + ' ignorados';
   };
 
-  document.getElementById('fc-hide-toggle').addEventListener('change', function() {
+  panel.querySelector('#fc-hide-toggle').addEventListener('change', function() {
     var mode = this.checked ? 'complete' : 'message';
     Android.setHideMode(mode);
-    document.getElementById('fc-toggle-track').style.background = this.checked ? '#00e5cc' : '#555';
-    document.getElementById('fc-toggle-thumb').style.left = this.checked ? '21px' : '3px';
+    panel.querySelector('#fc-toggle-track').style.background = this.checked ? '#00e5cc' : '#555';
+    panel.querySelector('#fc-toggle-thumb').style.left = this.checked ? '21px' : '3px';
   });
 
   var anchor = document.querySelector('.member_username')
