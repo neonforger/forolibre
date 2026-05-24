@@ -109,18 +109,31 @@
   var isChecked = hideMode === 'complete';
   var profileInfo = getCurrentProfileInfo();
 
-  // Overlay
+  // Overlay (transparente, solo para cerrar al tocar fuera)
   var overlay = document.createElement('div');
   overlay.id = 'fc-settings-overlay';
-  overlay.style.cssText = 'display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.5);';
+  overlay.style.cssText = 'display:none;position:fixed;inset:0;z-index:9998;';
   overlay.addEventListener('click', function(e) { if (e.target === overlay) closePanel(); });
+
+  // Contenedor popover (panel + flecha)
+  var container = document.createElement('div');
+  container.id = 'fc-settings-container';
+  container.style.cssText = 'display:none;position:fixed;bottom:82px;right:8px;z-index:9999;';
 
   // Panel
   var panel = document.createElement('div');
   panel.id = 'fc-settings-panel';
-  panel.style.cssText = 'display:none;position:fixed;top:var(--header-height,56px);left:0;right:0;' +
-    'z-index:9999;background:#1a1a1a;border-bottom:2px solid #2a2a2a;padding:0 16px;' +
-    'font-family:sans-serif;font-size:14px;color:#e0e0e0;max-height:80vh;overflow-y:auto;';
+  panel.style.cssText = 'width:290px;background:#1a1a1a;border:1px solid #2a2a2a;' +
+    'border-radius:12px;padding:4px 14px 8px;' +
+    'font-family:sans-serif;font-size:14px;color:#e0e0e0;' +
+    'max-height:70vh;overflow-y:auto;' +
+    'box-shadow:0 4px 24px rgba(0,0,0,0.7);';
+
+  // Flecha apuntando al FAB
+  var arrow = document.createElement('div');
+  arrow.style.cssText = 'width:0;height:0;' +
+    'border-left:9px solid transparent;border-right:9px solid transparent;' +
+    'border-top:9px solid #2a2a2a;margin-left:auto;margin-right:18px;';
 
   // — Fila: ocultar completamente
   var hiddenRow =
@@ -192,11 +205,13 @@
 
   panel.innerHTML = hiddenRow + ignoredRow + favRow + kwRow + debugRow;
 
+  container.appendChild(panel);
+  container.appendChild(arrow);
   document.body.appendChild(overlay);
-  document.body.appendChild(panel);
+  document.body.appendChild(container);
 
-  function openPanel() { overlay.style.display = 'block'; panel.style.display = 'block'; }
-  function closePanel() { overlay.style.display = 'none'; panel.style.display = 'none'; }
+  function openPanel() { overlay.style.display = 'block'; container.style.display = 'block'; }
+  function closePanel() { overlay.style.display = 'none'; container.style.display = 'none'; }
 
   window.fcToggleSettings = function() {
     if (panel.style.display === 'none') openPanel(); else closePanel();
