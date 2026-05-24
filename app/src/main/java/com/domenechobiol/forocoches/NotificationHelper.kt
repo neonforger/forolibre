@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -14,10 +15,12 @@ object NotificationHelper {
     private const val CHANNEL_NAME = "FC+ Notificaciones"
 
     fun createChannel(context: Context) {
-        val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT)
-        channel.description = "Notificaciones de Forocoches Plus"
-        context.getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(channel)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT)
+            channel.description = "Notificaciones de Forocoches Plus"
+            context.getSystemService(NotificationManager::class.java)
+                ?.createNotificationChannel(channel)
+        }
     }
 
     fun show(context: Context, id: Int, title: String, text: String) {
@@ -36,13 +39,13 @@ object NotificationHelper {
             .setAutoCancel(true)
             .build()
 
-        if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-            NotificationManagerCompat.from(context).notify(id, notification)
+        val nm = NotificationManagerCompat.from(context)
+        if (nm.areNotificationsEnabled()) {
+            nm.notify(id, notification)
         }
     }
 
-    // Notification IDs estables por tipo
     const val ID_PM = 1001
     const val ID_NOTIF = 1002
-    const val ID_FAVORITE_BASE = 2000 // 2000 + índice del usuario favorito
+    const val ID_FAVORITE_BASE = 2000
 }
