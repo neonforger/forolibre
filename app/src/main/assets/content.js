@@ -51,48 +51,45 @@
 
   // ── Post filtering (dentro de hilos) ────────────────────────────────────
 
-  function getPostAuthor(post) {
-    // vBulletin móvil: el autor suele estar en .username strong o en un <a href="member.php...">
-    const el = post.querySelector('.username strong, .postusername strong, .postusername, .username');
-    if (el) return el.textContent.trim();
-    // Fallback: enlace al perfil del autor
-    const memberLink = post.querySelector('a[href*="member.php"]');
-    if (memberLink) return memberLink.textContent.trim();
-    return null;
-  }
+  function filterPosts(root) {
+    const menus = (root || document).querySelectorAll('div[id^="postmenu_"]');
+    for (const menu of menus) {
+      // Ignorar los sub-menús popup (tienen sufijo _menu)
+      if (menu.id.endsWith('_menu')) continue;
+      const authorEl = menu.querySelector('b > a[href*="member.php"]');
+      if (!authorEl) continue;
+      const author = authorEl.textContent.trim();
+      if (!ignoredSet.has(author)) continue;
 
-  function filterPosts(posts) {
-    for (const post of posts) {
-      const author = getPostAuthor(post);
-      if (author && ignoredSet.has(author)) post.style.display = 'none';
+      // El wrapper completo del post: div#postlist -> su padre
+      const postList = menu.closest('ol')?.parentElement;
+      const wrapper = postList?.parentElement;
+      if (wrapper) { wrapper.style.display = 'none'; continue; }
+
+      // Fallback: ocultar al menos cabecera y mensaje por separado
+      const postId = menu.id.replace('postmenu_', '');
+      menu.closest('li')?.style && (menu.closest('li').style.display = 'none');
+      const msgEl = document.getElementById('post_message_' + postId);
+      msgEl?.closest('li') && (msgEl.closest('li').style.display = 'none');
     }
-  }
-
-  function getPostContainers(root) {
-    return Array.from((root || document).querySelectorAll('div[id^="post_"], .postcontainer, .post-row'));
   }
 
   // ── Inicialización ───────────────────────────────────────────────────────
 
   if (isThreadPage) {
-    filterPosts(getPostContainers());
+    filterPosts();
   } else {
     filterThreads(getThreadRows());
   }
 
   const observer = new MutationObserver(function (mutations) {
     if (isThreadPage) {
-      const newPosts = [];
-      const seen = new Set();
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== 1) continue;
-          for (const post of getPostContainers(node)) {
-            if (!seen.has(post)) { seen.add(post); newPosts.push(post); }
-          }
+          if (node.querySelector?.('div[id^="postmenu_"]')) filterPosts(node);
         }
       }
-      if (newPosts.length > 0) filterPosts(newPosts);
     } else {
       const newRows = [];
       const seen = new Set();
