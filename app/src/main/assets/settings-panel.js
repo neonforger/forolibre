@@ -214,7 +214,7 @@
   function closePanel() { overlay.style.display = 'none'; container.style.display = 'none'; }
 
   window.fcToggleSettings = function() {
-    if (panel.style.display === 'none') openPanel(); else closePanel();
+    if (container.style.display === 'none') openPanel(); else closePanel();
   };
 
   window.fcToggleSection = function(id) { toggle(id); };
