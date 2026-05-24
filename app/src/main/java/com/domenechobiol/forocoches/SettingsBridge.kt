@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 class SettingsBridge(
     private val repo: IgnoreListRepository,
     private val notifRepo: NotificationRepository,
+    private val keywordRepo: KeywordRepository,
     private val webView: WebView,
     private val context: Context = webView.context
 ) {
@@ -82,6 +83,38 @@ class SettingsBridge(
         WorkManager.getInstance(context).enqueue(
             OneTimeWorkRequestBuilder<NotificationWorker>().build()
         )
+    }
+
+    @JavascriptInterface
+    fun getKeywordFilterEnabled(): Boolean = keywordRepo.isEnabled()
+
+    @JavascriptInterface
+    fun setKeywordFilterEnabled(enabled: Boolean) {
+        keywordRepo.setEnabled(enabled)
+    }
+
+    @JavascriptInterface
+    fun getKeywordsJson(): String {
+        val keywords = keywordRepo.getKeywords()
+        if (keywords.isEmpty()) return "[]"
+        return "[" + keywords.joinToString(",") {
+            "\"${escapeJson(it)}\""
+        } + "]"
+    }
+
+    @JavascriptInterface
+    fun addKeyword(keyword: String) {
+        if (keyword.isNotBlank()) keywordRepo.addKeyword(keyword.trim())
+    }
+
+    @JavascriptInterface
+    fun removeKeyword(keyword: String) {
+        keywordRepo.removeKeyword(keyword)
+    }
+
+    @JavascriptInterface
+    fun resetKeywordsToDefaults() {
+        keywordRepo.resetToDefaults()
     }
 
     private fun notifyRefreshDone() {
