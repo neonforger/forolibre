@@ -52,6 +52,19 @@
     }).join('');
   }
 
+  function buildKeywordRows(keywords) {
+    if (keywords.length === 0)
+      return '<div style="color:#666;font-size:12px;padding:4px 0;">No hay palabras clave</div>';
+    return keywords.map(function(k) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;' +
+             'padding:4px 0;border-bottom:1px solid #2a2a2a;">' +
+             '<span style="color:#ccc;font-size:13px;">' + escAttr(k) + '</span>' +
+             '<button onclick="fcRemoveKeyword(\'' + escJs(k) + '\')" style="' +
+             'background:none;border:none;color:#ff5555;cursor:pointer;font-size:13px;padding:2px 8px;">✕</button>' +
+             '</div>';
+    }).join('');
+  }
+
   function getCurrentProfileInfo() {
     var params = new URLSearchParams(window.location.search);
     var userId = params.get('u');
@@ -113,6 +126,35 @@
       'border-radius:4px;padding:4px;font-size:12px;cursor:pointer;">' +
       '★ Añadir @' + escAttr(profileInfo.username) + ' a favoritos</button>'
     : '';
+
+  var kwEnabled = Android.getKeywordFilterEnabled();
+  var keywords = JSON.parse(Android.getKeywordsJson());
+  var kwSliderBg = kwEnabled ? '#00e5cc' : '#555';
+  var kwThumbLeft = kwEnabled ? '21px' : '3px';
+
+  panel.innerHTML +=
+    '<div style="border-top:1px solid #333;margin-top:12px;padding-top:12px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+    '<span style="font-size:12px;color:#888;">Filtro político <span style="font-size:10px;">(oculta hilos por palabras)</span></span>' +
+    '<label style="position:relative;width:40px;height:22px;flex-shrink:0;cursor:pointer;">' +
+    '<input type="checkbox" id="fc-kw-toggle" ' + (kwEnabled ? 'checked' : '') +
+    ' style="opacity:0;width:0;height:0;position:absolute;">' +
+    '<span id="fc-kw-track" style="position:absolute;inset:0;background:' + kwSliderBg +
+    ';border-radius:22px;transition:background 0.2s;">' +
+    '<span id="fc-kw-thumb" style="position:absolute;width:16px;height:16px;left:' + kwThumbLeft +
+    ';bottom:3px;background:#fff;border-radius:50%;transition:left 0.2s;"></span>' +
+    '</span></label>' +
+    '</div>' +
+    '<div id="fc-kw-list" style="max-height:150px;overflow-y:auto;">' + buildKeywordRows(keywords) + '</div>' +
+    '<div style="display:flex;gap:4px;margin-top:8px;">' +
+    '<input id="fc-kw-input" type="text" placeholder="Añadir palabra..." style="' +
+    'flex:1;background:#2a2a2a;border:1px solid #444;color:#e0e0e0;border-radius:4px;padding:4px 8px;font-size:12px;">' +
+    '<button onclick="fcAddKeyword()" style="background:none;border:1px solid #00e5cc;color:#00e5cc;' +
+    'border-radius:4px;padding:2px 10px;font-size:13px;cursor:pointer;">+</button>' +
+    '</div>' +
+    '<button onclick="fcResetKeywords()" style="width:100%;margin-top:6px;background:none;border:1px solid #555;' +
+    'color:#888;border-radius:4px;padding:3px;font-size:11px;cursor:pointer;">↺ Restablecer predeterminados</button>' +
+    '</div>';
 
   panel.innerHTML +=
     '<div style="border-top:1px solid #333;margin-top:12px;padding-top:12px;">' +
@@ -176,6 +218,36 @@
     panel.querySelector('#fc-toggle-track').style.background = this.checked ? '#00e5cc' : '#555';
     panel.querySelector('#fc-toggle-thumb').style.left = this.checked ? '21px' : '3px';
   });
+
+  panel.querySelector('#fc-kw-toggle').addEventListener('change', function() {
+    Android.setKeywordFilterEnabled(this.checked);
+    panel.querySelector('#fc-kw-track').style.background = this.checked ? '#00e5cc' : '#555';
+    panel.querySelector('#fc-kw-thumb').style.left = this.checked ? '21px' : '3px';
+  });
+
+  window.fcRemoveKeyword = function(keyword) {
+    Android.removeKeyword(keyword);
+    var kws = JSON.parse(Android.getKeywordsJson());
+    var list = document.getElementById('fc-kw-list');
+    if (list) list.innerHTML = buildKeywordRows(kws);
+  };
+
+  window.fcAddKeyword = function() {
+    var input = document.getElementById('fc-kw-input');
+    if (!input || !input.value.trim()) return;
+    Android.addKeyword(input.value.trim());
+    var kws = JSON.parse(Android.getKeywordsJson());
+    var list = document.getElementById('fc-kw-list');
+    if (list) list.innerHTML = buildKeywordRows(kws);
+    input.value = '';
+  };
+
+  window.fcResetKeywords = function() {
+    Android.resetKeywordsToDefaults();
+    var kws = JSON.parse(Android.getKeywordsJson());
+    var list = document.getElementById('fc-kw-list');
+    if (list) list.innerHTML = buildKeywordRows(kws);
+  };
 
   window.fcTestNotifications = function() {
     var btn = document.getElementById('fc-test-btn');
