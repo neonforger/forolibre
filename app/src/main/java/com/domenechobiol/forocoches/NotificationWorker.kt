@@ -2,6 +2,7 @@ package com.domenechobiol.forocoches
 
 import android.content.Context
 import android.webkit.CookieManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 
@@ -12,8 +13,8 @@ class NotificationWorker(
 
     override suspend fun doWork(): Result {
         val cookie = CookieManager.getInstance().getCookie("https://forocoches.com")
-            ?: return Result.success()
-        if (cookie.isBlank()) return Result.success()
+        android.util.Log.d("FC_NOTIF", "cookie=${if (cookie == null) "NULL" else if (cookie.isBlank()) "BLANK" else "OK(${cookie.length})"}")
+        if (cookie == null || cookie.isBlank()) return Result.success()
 
         val notifRepo = NotificationRepository(applicationContext)
         val fetcher = NotificationFetcher()
@@ -22,7 +23,8 @@ class NotificationWorker(
             checkMainNotifications(cookie, fetcher, notifRepo)
             checkFavoriteUsers(cookie, fetcher, notifRepo)
             Result.success()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("FC_NOTIF", "worker exception: ${e.message}", e)
             Result.retry()
         }
     }
@@ -34,11 +36,17 @@ class NotificationWorker(
     ) {
         val html = fetcher.fetchMainPage(cookie)
 
-
         val pmCount = fetcher.parsePmCount(html)
         val notifCount = fetcher.parseNotifCount(html)
-
         val lastPm = repo.getLastPmCount()
+        val lastNotif = repo.getLastNotifCount()
+        android.util.Log.d("FC_NOTIF", "pmCount=$pmCount lastPm=$lastPm notifCount=$notifCount lastNotif=$lastNotif")
+
+        val pmIdx = html.indexOf("private.php")
+        if (pmIdx >= 0) android.util.Log.d("FC_NOTIF", "pm_html: ${html.substring(pmIdx, minOf(html.length, pmIdx + 600))}")
+
+        android.util.Log.d("FC_NOTIF", "notificationsEnabled=${NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()}")
+
         if (lastPm >= 0 && pmCount > lastPm) {
             val diff = pmCount - lastPm
             NotificationHelper.show(
@@ -50,7 +58,6 @@ class NotificationWorker(
         }
         repo.setLastPmCount(pmCount)
 
-        val lastNotif = repo.getLastNotifCount()
         if (lastNotif >= 0 && notifCount > lastNotif) {
             val diff = notifCount - lastNotif
             NotificationHelper.show(
