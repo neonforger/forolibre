@@ -29,7 +29,6 @@ App Android no oficial para Forocoches que mejora la experiencia del foro con fi
 - Botón flotante (⚙) en esquina inferior derecha
 - Gestión de usuarios ignorados con opción de sincronizar
 - Gestión del filtro político
-- Botón de prueba de notificaciones
 
 ### Bloqueador de anuncios
 - Bloquea dominios publicitarios conocidos

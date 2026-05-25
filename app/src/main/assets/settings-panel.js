@@ -142,15 +142,7 @@
     'color:#555;border-radius:4px;padding:3px;font-size:11px;cursor:pointer;">↺ Restablecer predeterminados</button>' +
     '</div>';
 
-  // — Fila: debug
-  var debugRow =
-    '<div style="padding:8px 0;">' +
-    '<button onclick="fcTestNotifications()" style="width:100%;background:none;border:1px solid #2a2a2a;' +
-    'color:#444;border-radius:4px;padding:4px;font-size:11px;cursor:pointer;" id="fc-test-btn">' +
-    '🧪 Simular notificación</button>' +
-    '</div>';
-
-  panel.innerHTML = ignoredRow + kwRow + debugRow;
+  panel.innerHTML = ignoredRow + kwRow;
 
   container.appendChild(panel);
   container.appendChild(arrow);
@@ -227,15 +219,6 @@
     if (list) list.innerHTML = buildKeywordRows(kws);
     var cnt = document.getElementById('fc-kw-count');
     if (cnt) cnt.textContent = kws.length + ' palabras';
-  };
-
-  window.fcTestNotifications = function() {
-    var btn = document.getElementById('fc-test-btn');
-    if (btn) { btn.textContent = '⏳ Lanzado — pon la app en background'; btn.disabled = true; }
-    Android.testNotifications();
-    setTimeout(function() {
-      if (btn) { btn.textContent = '🧪 Simular notificación'; btn.disabled = false; }
-    }, 5000);
   };
 
   // FAB
