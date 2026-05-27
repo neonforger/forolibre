@@ -2,6 +2,13 @@
 
 App Android no oficial para Forocoches que mejora la experiencia del foro con filtros, notificaciones y otras utilidades.
 
+## Capturas
+
+<p float="left">
+  <img src="screenshots/subforos.png" width="45%" />
+  <img src="screenshots/settings-panel.png" width="45%" />
+</p>
+
 ## Funcionalidades
 
 ### Filtro de usuarios ignorados
