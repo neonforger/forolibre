@@ -4,7 +4,7 @@
 
 App Android no oficial para Forocoches que mejora la experiencia del foro con filtros, notificaciones y otras utilidades.
 
-> **[⬇ Descargar APK](https://github.com/albertd987/forocoches-plus/releases/latest)**
+> **[Descargar APK](https://github.com/albertd987/forocoches-plus/releases/latest)**
 
 ## Capturas
 
