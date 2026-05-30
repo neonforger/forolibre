@@ -9,18 +9,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Tweet new release
-        uses: twitter-together/action@v1
+        run: |
+          npm install twitter-api-v2 2>/dev/null
+          node -e "
+          const { TwitterApi } = require('twitter-api-v2');
+          const client = new TwitterApi({
+            appKey: process.env.TWITTER_API_KEY,
+            appSecret: process.env.TWITTER_API_SECRET,
+            accessToken: process.env.TWITTER_ACCESS_TOKEN,
+            accessSecret: process.env.TWITTER_ACCESS_SECRET,
+          });
+          const text = \`🚀 Forocoches+ ${{ github.event.release.tag_name }} ya disponible\n\nFiltra usuarios, bloquea anuncios y recibe notificaciones de MPs.\n\nDescarga: ${{ github.event.release.html_url }}\n\n#Forocoches #Android\`;
+          client.v2.tweet(text).then(() => console.log('Tweet enviado')).catch(e => { console.error(e); process.exit(1); });
+          "
         env:
           TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-        with:
-          tweet: |
-            🚀 Forocoches+ ${{ github.event.release.tag_name }} ya disponible
-
-            Filtra usuarios, bloquea anuncios y recibe notificaciones de MPs.
-
-            Descarga: ${{ github.event.release.html_url }}
-
-            #Forocoches #Android
