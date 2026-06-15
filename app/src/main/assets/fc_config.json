@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "newSkinMarker": ".menu-item, .user-notifications-count-wrapper",
+  "threadLink": "a[href*=\"showthread.php?t=\"]",
+  "oldThreadTitle": "a[id^=\"thread_title_\"]",
+  "forumAuthorOld": "[onclick*=\"member.php\"]",
+  "ignoredPlaceholder": "oculto porque",
+  "postAuthorOld": "span.xsaid a[href*=\"member.php\"]",
+  "postAuthorNew": "[id^=\"postmenu_\"] a[href*=\"member.php\"]",
+  "postContainerNew": "div.postbit_wrapper"
+}
