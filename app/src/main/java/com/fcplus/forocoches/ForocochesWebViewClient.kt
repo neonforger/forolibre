@@ -32,11 +32,15 @@ class ForocochesWebViewClient(
         if (AdBlocker.shouldBlock(request.url.toString())) {
             return WebResourceResponse("text/plain", "utf-8", "".byteInputStream())
         }
+        // No servimos copias del HTML: el filtrado (hilos y posts, ambos skins) lo hace
+        // content.js ocultando por DOM, que no rompe el render JS de FC.
         return null
     }
 
     override fun onPageFinished(view: WebView, url: String) {
         injectCss(view, adblockCss)
+        // Config de selectores (remota o bundleada) ANTES de content.js, que la lee.
+        view.evaluateJavascript("window.FC_CONFIG=${RemoteConfig.cachedJson(context)};", null)
         view.evaluateJavascript(contentJs, null)
         view.evaluateJavascript(settingsPanelJs, null)
         onPageLoad?.invoke()

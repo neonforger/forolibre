@@ -4,9 +4,9 @@ import android.content.Context
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import kotlinx.coroutines.runBlocking
+import java.util.Collections
+import java.util.concurrent.Executors
 
 class SettingsBridge(
     private val repo: IgnoreListRepository,
@@ -15,6 +15,47 @@ class SettingsBridge(
     private val webView: WebView,
     private val context: Context = webView.context
 ) {
+
+    // --- Creador de hilo (para el listado del skin viejo móvil, que no lo muestra) ---
+    private val creatorCache by lazy { ThreadCreatorCache(context) }
+    private val creatorFetcher = ThreadCreatorFetcher()
+    private val creatorPool = Executors.newFixedThreadPool(4) // throttle: máx 4 a la vez
+    private val creatorInFlight = Collections.synchronizedSet(HashSet<Long>())
+
+    /** Creador cacheado (instantáneo) o "" si no se conoce aún. */
+    @JavascriptInterface
+    fun getCachedCreator(threadId: String): String =
+        threadId.toLongOrNull()?.let { creatorCache.get(it) } ?: ""
+
+    /** Pide el creador de un hilo desconocido (descarga con corte temprano, en 2º plano). */
+    @JavascriptInterface
+    fun requestThreadCreator(threadId: String) {
+        val tid = threadId.toLongOrNull() ?: return
+        creatorCache.get(tid)?.let { notifyCreator(tid, it); return }
+        if (!creatorInFlight.add(tid)) return // ya en curso
+        creatorPool.execute {
+            try {
+                val cookie = CookieManager.getInstance().getCookie("https://forocoches.com")
+                if (!cookie.isNullOrBlank()) {
+                    val creator = creatorFetcher.fetchCreator(tid, cookie)
+                    if (!creator.isNullOrBlank()) {
+                        creatorCache.put(tid, creator)
+                        notifyCreator(tid, creator)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                creatorInFlight.remove(tid)
+            }
+        }
+    }
+
+    private fun notifyCreator(tid: Long, creator: String) {
+        val safe = creator.replace("\\", "\\\\").replace("'", "\\'")
+        webView.post {
+            webView.evaluateJavascript("window.fcOnCreator&&fcOnCreator('$tid','$safe')", null)
+        }
+    }
 
     @JavascriptInterface
     fun getIgnoredUsersJson(): String {
@@ -50,12 +91,44 @@ class SettingsBridge(
     }
 
     @JavascriptInterface
-    fun testNotifications() {
-        notifRepo.setLastPmCount(0)
-        notifRepo.setLastNotifCount(0)
-        WorkManager.getInstance(context).enqueue(
-            OneTimeWorkRequestBuilder<NotificationWorker>().build()
-        )
+    fun isInstantEnabled(): Boolean = notifRepo.isInstantEnabled()
+
+    @JavascriptInterface
+    fun setInstantEnabled(enabled: Boolean) {
+        notifRepo.setInstantEnabled(enabled)
+        if (enabled) NotificationService.start(context) else NotificationService.stop(context)
+    }
+
+    @JavascriptInterface
+    fun getNotifIntervalSec(): Int = notifRepo.getIntervalSec()
+
+    @JavascriptInterface
+    fun setNotifIntervalSec(sec: Int) {
+        notifRepo.setIntervalSec(sec)
+    }
+
+    /**
+     * Recarga completa del WebView. El cambio de diseño hace el POST `updatestyleid`
+     * DENTRO del WebView (fetch en settings-panel.js, sesión consistente) y al terminar
+     * llama aquí para una recarga limpia y fiable.
+     */
+    @JavascriptInterface
+    fun reloadPage() {
+        webView.post { webView.reload() }
+    }
+
+    /**
+     * Canario: content.js avisa cuando un selector deja de encontrar datos que SÍ están en
+     * la página (probable cambio de HTML de FC). Lo dejamos en logcat (tag FC_CANARY) y
+     * guardamos el último incidente por si luego montamos un panel de diagnóstico.
+     */
+    @JavascriptInterface
+    fun reportCanary(area: String, detail: String) {
+        android.util.Log.w("FC_CANARY", "[$area] $detail")
+        context.getSharedPreferences("fc_health", Context.MODE_PRIVATE).edit()
+            .putString("last_issue", "[$area] $detail")
+            .putLong("last_issue_ts", System.currentTimeMillis())
+            .apply()
     }
 
     @JavascriptInterface

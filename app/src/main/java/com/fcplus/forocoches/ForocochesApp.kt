@@ -11,6 +11,7 @@ class ForocochesApp : Application() {
         super.onCreate()
 
         NotificationHelper.createChannel(this)
+        RemoteConfig.refresh(this) // actualiza selectores para la próxima carga
 
         try {
             val ignoreRequest = PeriodicWorkRequestBuilder<IgnoreListWorker>(30, TimeUnit.MINUTES).build()

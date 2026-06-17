@@ -1,9 +1,13 @@
 package com.fcplus.forocoches
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.MotionEvent
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -37,7 +41,9 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(startUrl)
         fetchIgnoreListIfNeeded()
         requestNotificationPermission()
+        requestBatteryExemption()
         startNotificationPolling()
+        if (NotificationRepository(this).isInstantEnabled()) NotificationService.start(this)
     }
 
     private fun configureWebView() {
@@ -57,9 +63,10 @@ class MainActivity : AppCompatActivity() {
         repo = IgnoreListRepository(this)
         val notifRepo = NotificationRepository(this)
         val keywordRepo = KeywordRepository(this)
-        webView.webViewClient = ForocochesWebViewClient(this, repo, keywordRepo) {
-            swipeRefresh.isRefreshing = false
-        }
+        webView.webViewClient = ForocochesWebViewClient(
+            this, repo, keywordRepo,
+            onPageLoad = { swipeRefresh.isRefreshing = false }
+        )
         webView.addJavascriptInterface(SettingsBridge(repo, notifRepo, keywordRepo, webView), "Android")
     }
 
@@ -108,41 +115,33 @@ class MainActivity : AppCompatActivity() {
                 val cookie = CookieManager.getInstance().getCookie("https://forocoches.com")
                 if (!cookie.isNullOrBlank()) {
                     try {
-                        val notifRepo = NotificationRepository(this@MainActivity)
-                        val fetcher = NotificationFetcher()
-                        val html = fetcher.fetchMainPage(cookie)
-                        val (pmCount, notifCount) = fetcher.parseAllCounts(html)
-
-                        val lastPm = notifRepo.getLastPmCount()
-                        if (lastPm >= 0 && pmCount > lastPm) {
-                            val diff = pmCount - lastPm
-                            NotificationHelper.show(
-                                this@MainActivity,
-                                NotificationHelper.ID_PM,
-                                "FC+ Mensajes Privados",
-                                "Tienes $diff nuevo${if (diff == 1) "" else "s"} mensaje${if (diff == 1) "" else "s"} privado${if (diff == 1) "" else "s"}",
-                                pmCount,
-                                "https://forocoches.com/foro/private.php"
-                            )
-                        }
-                        notifRepo.setLastPmCount(pmCount)
-
-                        val lastNotif = notifRepo.getLastNotifCount()
-                        if (lastNotif >= 0 && notifCount > lastNotif) {
-                            val diff = notifCount - lastNotif
-                            NotificationHelper.show(
-                                this@MainActivity,
-                                NotificationHelper.ID_NOTIF,
-                                "FC+ Notificaciones",
-                                "Tienes $diff nueva${if (diff == 1) "" else "s"} notificación${if (diff == 1) "" else "es"}",
-                                notifCount
-                            )
-                        }
-                        notifRepo.setLastNotifCount(notifCount)
+                        NotificationChecker.check(this@MainActivity, cookie)
                     } catch (_: Exception) { }
                 }
                 delay(60_000)
             }
+        }
+    }
+
+    /**
+     * Pide eximir la app de la optimización de batería. Sin esto, Samsung/Xiaomi/etc.
+     * "duermen" la app y matan el NotificationWorker de fondo. Solo pregunta si aún no
+     * está exenta.
+     */
+    private fun requestBatteryExemption() {
+        val pm = getSystemService(PowerManager::class.java) ?: return
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Exception) { }
         }
     }
 
@@ -153,6 +152,13 @@ class MainActivity : AppCompatActivity() {
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Persiste las cookies de sesión a disco para que el NotificationWorker en
+        // background no haga el fetch deslogueado.
+        CookieManager.getInstance().flush()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

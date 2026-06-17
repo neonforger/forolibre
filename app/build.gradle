@@ -3,6 +3,15 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Credenciales de firma fuera del control de versiones (keystore.properties está en
+// .gitignore). Si el fichero no existe (p.ej. al clonar el repo), los builds debug y
+// release-sin-firmar siguen funcionando; solo el release firmado necesita estas claves.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace 'com.fcplus.forocoches'
     compileSdk 34
@@ -18,10 +27,12 @@ android {
 
     signingConfigs {
         release {
-            storeFile file('../release.keystore')
-            storePassword 'fcplus2024'
-            keyAlias 'fcplus'
-            keyPassword 'fcplus2024'
+            if (keystorePropsFile.exists()) {
+                storeFile file(keystoreProps['storeFile'] ?: '../release.keystore')
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
         }
     }
 
@@ -29,7 +40,8 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // Solo firma si hay credenciales; si no, release queda sin firmar (clones del repo).
+            signingConfig keystorePropsFile.exists() ? signingConfigs.release : null
         }
     }
 
@@ -56,6 +68,7 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'androidx.work:work-runtime-ktx:2.9.0'
+    implementation 'org.jsoup:jsoup:1.17.2'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.11.1'

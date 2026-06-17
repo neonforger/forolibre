@@ -2,6 +2,7 @@ package com.fcplus.forocoches
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jsoup.Jsoup
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -24,13 +25,12 @@ class IgnoreListFetcher {
     }
 
     fun parseIgnoreList(html: String): List<String> {
-        val usernames = mutableListOf<String>()
-        val divRegex = Regex("""<div[^>]+id="user\d+"[^>]*>([\s\S]*?)</div>""", RegexOption.IGNORE_CASE)
-        val aRegex = Regex("""href="member\.php\?u=\d+"[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
-        for (divMatch in divRegex.findAll(html)) {
-            val aMatch = aRegex.find(divMatch.value)
-            if (aMatch != null) usernames.add(aMatch.groupValues[1].trim())
-        }
-        return usernames
+        // Cada usuario ignorado es un elemento con id="userN" (sea <li>, <div>, …).
+        // jsoup lo selecciona por id sin depender del tag, y de ahí sacamos el enlace
+        // a member.php con el nombre.
+        return Jsoup.parse(html).select("[id~=^user\\d+$]")
+            .mapNotNull { row ->
+                row.selectFirst("a[href*=member.php]")?.text()?.trim()?.ifBlank { null }
+            }
     }
 }

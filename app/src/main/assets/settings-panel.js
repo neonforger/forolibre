@@ -6,6 +6,17 @@
   var lastUpdated = Android.getLastUpdatedMs();
   var kwEnabled = Android.getKeywordFilterEnabled();
   var keywords = JSON.parse(Android.getKeywordsJson());
+  var instEnabled = Android.isInstantEnabled ? Android.isInstantEnabled() : false;
+  var instInterval = Android.getNotifIntervalSec ? Android.getNotifIntervalSec() : 60;
+  // Estado actual del diseño. Lo más fiable: el menú de FC muestra "Versión nueva"
+  // (setNewDesign) cuando estás en el antiguo, y "Versión antigua" (setOldDesign) cuando
+  // estás en el nuevo. Fallback: el global styleid (antiguo = 5/7, nuevo = 8/9).
+  var isOldDesign = false;
+  try {
+    if (document.querySelector('[onclick*="setNewDesign"]')) isOldDesign = true;
+    else if (document.querySelector('[onclick*="setOldDesign"]')) isOldDesign = false;
+    else if (typeof styleid !== 'undefined') isOldDesign = (styleid == 5 || styleid == 7);
+  } catch (e) {}
 
   function timeAgo(ms) {
     if (!ms) return 'nunca';
@@ -142,7 +153,91 @@
     'color:#555;border-radius:4px;padding:3px;font-size:11px;cursor:pointer;">↺ Restablecer predeterminados</button>' +
     '</div>';
 
-  panel.innerHTML = ignoredRow + kwRow;
+  // — Fila: notificaciones instantáneas (servicio en primer plano)
+  var instRow =
+    '<div style="' + rowStyle() + '">' +
+    '<span style="color:#888;font-size:13px;">Notif. instantáneas</span>' +
+    '<div style="display:flex;gap:8px;align-items:center;">' +
+    toggleSwitch('fc-inst-toggle', 'fc-inst-track', 'fc-inst-thumb', instEnabled) +
+    '</div></div>' +
+    '<div id="fc-inst-section" style="display:' + (instEnabled ? 'block' : 'none') + ';padding-bottom:8px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">' +
+    '<span style="color:#888;font-size:12px;">Intervalo</span>' +
+    '<select id="fc-inst-interval" style="background:#222;border:1px solid #333;color:#e0e0e0;' +
+    'border-radius:4px;padding:3px 6px;font-size:12px;">' +
+    '<option value="30">30 s</option><option value="60">60 s</option><option value="120">2 min</option>' +
+    '</select></div>' +
+    '<div style="color:#444;font-size:10px;">Comprueba mensajes con la app cerrada (gasta más batería). ' +
+    'Quita la app de la suspensión de batería para que no la pare el sistema.</div>' +
+    '</div>';
+
+  // — Fila: diseño antiguo / nuevo (llama a las funciones de la propia FC)
+  var designRow =
+    '<div style="' + rowStyle() + '">' +
+    '<span style="color:#888;font-size:13px;">Diseño antiguo</span>' +
+    '<div style="display:flex;gap:8px;align-items:center;">' +
+    toggleSwitch('fc-design-toggle', 'fc-design-track', 'fc-design-thumb', isOldDesign) +
+    '</div></div>';
+
+  panel.innerHTML = ignoredRow + kwRow + instRow + designRow;
+
+  (function() {
+    var d = panel.querySelector('#fc-design-toggle');
+    if (!d) return;
+    d.addEventListener('change', function() {
+      var on = this.checked;
+      // Feedback inmediato: mover la bola y colorear (igual que los otros toggles).
+      var track = panel.querySelector('#fc-design-track');
+      var thumb = panel.querySelector('#fc-design-thumb');
+      if (track) track.style.background = on ? '#00e5cc' : '#555';
+      if (thumb) thumb.style.left = on ? '21px' : '3px';
+      // Evitar rebote/doble click durante la recarga.
+      this.disabled = true;
+      // OPCIÓN A: hacemos el POST DENTRO del WebView (fetch con credentials:'include'),
+      // así la sesión (incluida la rotación de bbsessionhash) la gestiona el propio
+      // WebView y no se desincroniza. Al terminar, recargamos nosotros (reload fiable).
+      //
+      // El newstyleset correcto NO es fijo (desde el viejo, "nuevo" = 8; desde el nuevo,
+      // "viejo" = 7). FC define en cada página la función de "cambiar al otro diseño"
+      // (setNewDesign si estás en viejo, setOldDesign si estás en nuevo) con el valor
+      // correcto. Lo leemos de ahí en vez de hardcodear.
+      var styleset = null;
+      try {
+        var fn = (typeof setNewDesign === 'function') ? setNewDesign
+               : (typeof setOldDesign === 'function') ? setOldDesign : null;
+        if (fn) { var fm = fn.toString().match(/newstyleset:\s*["'](\d+)["']/); if (fm) styleset = fm[1]; }
+      } catch (e) {}
+      if (!styleset) styleset = on ? '7' : '9'; // fallback
+      var tok = '';
+      try { if (typeof SECURITYTOKEN !== 'undefined' && SECURITYTOKEN) tok = SECURITYTOKEN; } catch (e) {}
+      if (!tok) { var ti = document.querySelector('input[name="securitytoken"]'); if (ti) tok = ti.value; }
+      var done = function() { if (Android.reloadPage) Android.reloadPage(); };
+      fetch('/foro/profile.php?do=updatestyleid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+        body: 'newstyleset=' + styleset + '&securitytoken=' + encodeURIComponent(tok) + '&s=&do=updatestyleid',
+        credentials: 'include'
+      }).then(done).catch(done);
+    });
+  })();
+
+  (function() {
+    var t = panel.querySelector('#fc-inst-toggle');
+    if (t) t.addEventListener('change', function() {
+      Android.setInstantEnabled(this.checked);
+      panel.querySelector('#fc-inst-track').style.background = this.checked ? '#00e5cc' : '#555';
+      panel.querySelector('#fc-inst-thumb').style.left = this.checked ? '21px' : '3px';
+      var sec = document.getElementById('fc-inst-section');
+      if (sec) sec.style.display = this.checked ? 'block' : 'none';
+    });
+    var sel = panel.querySelector('#fc-inst-interval');
+    if (sel) {
+      sel.value = String(instInterval);
+      sel.addEventListener('change', function() {
+        Android.setNotifIntervalSec(parseInt(this.value, 10));
+      });
+    }
+  })();
 
   container.appendChild(panel);
   container.appendChild(arrow);
