@@ -9,7 +9,7 @@
   // Selectores: por defecto los actuales, sobrescribibles por config remota (window.FC_CONFIG)
   // para poder arreglar roturas si FC cambia su HTML sin publicar versión nueva.
   const FC_DEFAULTS = {
-    newSkinMarker: '.menu-item, .user-notifications-count-wrapper',
+    newSkinMarker: '.menu-item, .user-notifications-count-wrapper, .header-container, .forocoches-logo, .user-profile-menu-container',
     threadLink: 'a[href*="showthread.php?t="]',
     oldThreadTitle: 'a[id^="thread_title_"]',
     forumAuthorOld: '[onclick*="member.php"]',
