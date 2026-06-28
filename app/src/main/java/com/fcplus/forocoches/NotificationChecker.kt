@@ -39,7 +39,7 @@ object NotificationChecker {
             } else {
                 val diff = counts.pm - lastPm
                 NotificationHelper.show(
-                    context, NotificationHelper.ID_PM, "FC+ Mensajes Privados",
+                    context, NotificationHelper.ID_PM, "ForoPlus · Mensajes Privados",
                     "Tienes $diff mensaje${if (diff == 1) "" else "s"} privado${if (diff == 1) "" else "s"} nuevo${if (diff == 1) "" else "s"}",
                     counts.pm, "https://forocoches.com/foro/private.php"
                 )
@@ -53,7 +53,7 @@ object NotificationChecker {
             NotificationHelper.show(
                 context,
                 NotificationHelper.ID_NOTIF,
-                "FC+ Notificaciones",
+                "ForoPlus · Notificaciones",
                 "Tienes $diff nueva${if (diff == 1) "" else "s"} notificación${if (diff == 1) "" else "es"} (citas/menciones)",
                 counts.notifTotal
             )

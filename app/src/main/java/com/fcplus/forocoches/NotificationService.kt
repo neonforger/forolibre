@@ -64,7 +64,7 @@ class NotificationService : Service() {
         )
         return NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .setContentTitle("Forocoches+")
+            .setContentTitle("ForoPlus")
             .setContentText("Comprobando mensajes")
             .setOngoing(true)
             .setSilent(true)
@@ -81,7 +81,7 @@ class NotificationService : Service() {
                 SERVICE_CHANNEL, "Servicio en segundo plano",
                 NotificationManager.IMPORTANCE_MIN
             )
-            ch.description = "Mantiene FC+ comprobando mensajes con la app cerrada"
+            ch.description = "Mantiene ForoPlus comprobando mensajes con la app cerrada"
             ch.setShowBadge(false)
             ch.setSound(null, null)
             ch.enableVibration(false)

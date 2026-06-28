@@ -23,12 +23,12 @@ import androidx.core.graphics.drawable.IconCompat
 object NotificationHelper {
 
     private const val CHANNEL_ID = "fc_notifications"
-    private const val CHANNEL_NAME = "FC+ Notificaciones"
+    private const val CHANNEL_NAME = "ForoPlus Notificaciones"
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT)
-            channel.description = "Notificaciones de Forocoches Plus"
+            channel.description = "Notificaciones de ForoPlus"
             context.getSystemService(NotificationManager::class.java)
                 ?.createNotificationChannel(channel)
         }
@@ -71,7 +71,7 @@ object NotificationHelper {
         )
 
         val them = Person.Builder()
-            .setName(sender.ifBlank { "Forocoches" })
+            .setName(sender.ifBlank { "ForoPlus" })
             .setIcon(IconCompat.createWithBitmap(initialAvatar(sender)))
             .build()
         val me = Person.Builder().setName("Tú").build()
