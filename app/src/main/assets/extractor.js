@@ -111,6 +111,32 @@
     return m;
   }
 
+  // Lista de subforos del índice (dinámica: si FC añade/quita subforos, la app se adapta).
+  window.fcLoadForumList = function (url) {
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var seen = new Set();
+        var forums = [];
+        doc.querySelectorAll('a[href*="forumdisplay.php?f="]').forEach(function (a) {
+          var m = (a.getAttribute('href') || '').match(/[?&]f=(\d+)/);
+          if (!m) return;
+          var name = a.textContent.replace(/\s+/g, ' ').trim();
+          if (!name || name.length > 40 || seen.has(m[1])) return;
+          seen.add(m[1]);
+          forums.push({ fid: m[1], name: name });
+        });
+        if (forums.length) {
+          AndroidShell.onForumList(JSON.stringify({ forums: forums }));
+        }
+      })
+      .catch(function (e) { /* sin lista de foros la app sigue con General */ });
+  };
+
   // API pública para la app: carga un listado por fetch same-origin y lo entrega parseado.
   window.fcLoadThreadList = function (url) {
     fetch(url, { credentials: 'same-origin' })

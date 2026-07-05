@@ -29,13 +29,23 @@
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:paddingTop="12dp"
-                android:paddingBottom="12dp"
+                android:paddingBottom="8dp"
                 android:text="ForoPlus"
                 android:textColor="#C8102E"
                 android:textSize="20sp"
                 android:textStyle="bold"
+                android:background="#FFFFFF" />
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/forum_tabs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:background="#FFFFFF"
-                android:elevation="2dp" />
+                android:elevation="2dp"
+                app:tabMode="scrollable"
+                app:tabIndicatorColor="#C8102E"
+                app:tabSelectedTextColor="#C8102E"
+                app:tabTextColor="#757575" />
 
             <FrameLayout
                 android:layout_width="match_parent"

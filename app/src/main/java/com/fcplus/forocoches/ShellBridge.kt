@@ -9,11 +9,15 @@ import android.webkit.JavascriptInterface
  */
 class ShellBridge(
     private val onList: (String) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    private val onForums: (String) -> Unit
 ) {
     @JavascriptInterface
     fun onThreadList(json: String) = onList(json)
 
     @JavascriptInterface
     fun onListError(reason: String) = onError(reason)
+
+    @JavascriptInterface
+    fun onForumList(json: String) = onForums(json)
 }

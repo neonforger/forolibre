@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -41,19 +42,30 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bottomNav: BottomNavigationView
     private lateinit var adapter: ThreadListAdapter
 
+    private lateinit var forumTabs: TabLayout
+
     private var menuLinks: MenuLinks? = null
     private var isWebVisible = false
     private var engineReady = false      // el WebView ya cargó una página de FC con extractor
     private var listLoaded = false
     private var currentPage = 1
     private var loadingPage = false      // evita ráfagas de peticiones con scroll rápido
+    private var currentForumId = 2       // General; se persiste el último elegido
+    private var forumsRequested = false
+    private var populatingTabs = false   // el alta programática de tabs no debe disparar cargas
 
     private var touchDownX = 0f
     private var touchDownY = 0f
 
     companion object {
-        private const val HOME_LIST_URL = "https://forocoches.com/foro/forumdisplay.php?f=2"
         private const val LOGIN_URL = "https://forocoches.com/foro/login.php"
+        private const val PREFS = "shell_prefs"
+        private const val PREF_LAST_FID = "last_fid"
+    }
+
+    private fun buildListUrl(page: Int): String {
+        val base = "https://forocoches.com/foro/forumdisplay.php?f=$currentForumId"
+        return if (page > 1) "$base&page=$page" else base
     }
 
     /** Con sesión, el menú de FC trae el enlace a MP; sin ella, somos invitado. */
@@ -71,6 +83,8 @@ class MainActivity : AppCompatActivity() {
         listLoading = findViewById(R.id.list_loading)
         listEmpty = findViewById(R.id.list_empty)
         bottomNav = findViewById(R.id.bottom_nav)
+        forumTabs = findViewById(R.id.forum_tabs)
+        currentForumId = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_LAST_FID, 2)
 
         applyWindowInsets()
         configureWebView()
@@ -144,7 +158,8 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(
             ShellBridge(
                 onList = { json -> runOnUiThread { onThreadListJson(json) } },
-                onError = { reason -> runOnUiThread { onThreadListError(reason) } }
+                onError = { reason -> runOnUiThread { onThreadListError(reason) } },
+                onForums = { json -> runOnUiThread { onForumListJson(json) } }
             ),
             "AndroidShell"
         )
@@ -195,6 +210,38 @@ class MainActivity : AppCompatActivity() {
         bottomNav.setOnItemReselectedListener { item ->
             if (item.itemId == R.id.nav_home) { showNative(); requestThreadList(1) }
         }
+
+        forumTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                if (populatingTabs) return
+                val fid = tab.tag as? Int ?: return
+                currentForumId = fid
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(PREF_LAST_FID, fid).apply()
+                listLoaded = false
+                adapter.submit(emptyList())
+                showNative()
+                requestThreadList(1)
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) { requestThreadList(1) }
+        })
+    }
+
+    /** Rellena las pestañas con los subforos reales del índice y marca el actual. */
+    private fun onForumListJson(json: String) {
+        val forums = parseForumListPayload(json)
+        if (forums.isEmpty()) return
+        populatingTabs = true
+        forumTabs.removeAllTabs()
+        var selectIdx = 0
+        forums.forEachIndexed { idx, f ->
+            val tab = forumTabs.newTab().setText(f.name)
+            tab.tag = f.fid
+            forumTabs.addTab(tab, false)
+            if (f.fid == currentForumId) selectIdx = idx
+        }
+        forumTabs.getTabAt(selectIdx)?.select()
+        populatingTabs = false
     }
 
     private fun openWeb(url: String?) {
@@ -219,6 +266,12 @@ class MainActivity : AppCompatActivity() {
     private fun onEnginePageReady(url: String) {
         if (!TrustedOrigins.isTrustedForocochesUrl(url)) return
         engineReady = true
+        if (!forumsRequested) {
+            forumsRequested = true
+            webView.evaluateJavascript(
+                "window.fcLoadForumList&&fcLoadForumList('https://forocoches.com/foro/')", null
+            )
+        }
         if (!listLoaded) requestThreadList(1)
     }
 
@@ -227,9 +280,8 @@ class MainActivity : AppCompatActivity() {
         loadingPage = true
         if (page <= 1 && !listRefresh.isRefreshing) listLoading.visibility = View.VISIBLE
         listEmpty.visibility = View.GONE
-        val url = if (page > 1) "$HOME_LIST_URL&page=$page" else HOME_LIST_URL
         webView.evaluateJavascript(
-            "window.fcLoadThreadList&&fcLoadThreadList('$url')", null
+            "window.fcLoadThreadList&&fcLoadThreadList('${buildListUrl(page)}')", null
         )
     }
 
@@ -271,7 +323,7 @@ class MainActivity : AppCompatActivity() {
                 // Challenge de CF: solo un navegador visible puede resolverlo. Enseñamos
                 // la web; al pasarlo, el usuario vuelve a Inicio y la lista carga.
                 showWeb()
-                webView.loadUrl(HOME_LIST_URL)
+                webView.loadUrl(buildListUrl(1))
             }
             else -> {
                 if (adapter.itemCount == 0) {

@@ -29,6 +29,26 @@ data class MenuLinks(
     val profile: String?
 )
 
+data class ForumTab(val fid: Int, val name: String)
+
+/** Parsea el payload de fcLoadForumList. Lista vacía si el JSON no es válido. */
+fun parseForumListPayload(json: String): List<ForumTab> {
+    return try {
+        val arr = JSONObject(json).getJSONArray("forums")
+        val list = ArrayList<ForumTab>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val fid = o.optString("fid").toIntOrNull() ?: continue
+            val name = o.optString("name").trim()
+            if (name.isEmpty()) continue
+            list.add(ForumTab(fid, name))
+        }
+        list
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
 data class ShellPayload(
     val url: String,
     val menu: MenuLinks,
