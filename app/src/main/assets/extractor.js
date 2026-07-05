@@ -1,0 +1,138 @@
+// extractor.js — motor de datos de la UI nativa (rama v2-shell).
+//
+// REGLA DE ORO anti-Cloudflare: TODA petición a FC sale de este contexto de navegador
+// (fetch same-origin con las cookies de la sesión del WebView). Nada de HTTP nativo.
+// Este script solo EXTRAE y entrega JSON crudo por el bridge AndroidShell; el filtrado
+// (ignorados/keywords) y el render viven en Kotlin.
+(function () {
+  if (window.__fcExtractorLoaded) { return; }
+  window.__fcExtractorLoaded = true;
+  if (typeof AndroidShell === 'undefined') { return; }
+
+  var THREAD_SEL = 'a[href*="showthread.php?t="]';
+
+  function tidOf(a) {
+    var m = (a.getAttribute('href') || '').match(/[?&]t=(\d+)/);
+    return m ? m[1] : null;
+  }
+
+  function tidsIn(el) {
+    var s = new Set();
+    el.querySelectorAll(THREAD_SEL).forEach(function (x) {
+      var t = tidOf(x); if (t) s.add(t);
+    });
+    return s;
+  }
+
+  // Mismo algoritmo que content.js: sube desde el anchor hasta el contenedor más
+  // ajustado que envuelve UN solo hilo.
+  function rowFor(a, tid, doc) {
+    var el = a;
+    while (el.parentElement && el.parentElement !== doc.body) {
+      var ids = tidsIn(el.parentElement);
+      if (ids.size > 1 || (ids.size === 1 && !ids.has(tid))) break;
+      el = el.parentElement;
+    }
+    return el;
+  }
+
+  function inMenu(a) {
+    // El menú de perfil (oculto) también contiene enlaces showthread: fuera.
+    return !!(a.closest && a.closest('.user-profile-menu-container, .header-container'));
+  }
+
+  function parseRow(row, tid) {
+    var anchors = [];
+    row.querySelectorAll(THREAD_SEL).forEach(function (x) { anchors.push(x); });
+    if (!anchors.length) return null;
+    // Título: el anchor con el texto más largo (los otros son contadores/hora).
+    var titleA = anchors[0];
+    anchors.forEach(function (x) {
+      if (x.textContent.trim().length > titleA.textContent.trim().length) titleA = x;
+    });
+    var title = titleA.textContent.replace(/\s+/g, ' ').trim();
+    if (!title) return null;
+
+    // Autor: span inmediatamente después del span "@"; respuestas: span numérico anterior.
+    var author = '', replies = '';
+    var spans = row.querySelectorAll('span');
+    for (var i = 0; i < spans.length; i++) {
+      if (spans[i].textContent.trim() === '@') {
+        if (i + 1 < spans.length) author = spans[i + 1].textContent.trim();
+        for (var j = i - 1; j >= 0; j--) {
+          var t = spans[j].textContent.trim();
+          if (/^\d+$/.test(t)) { replies = t; break; }
+          if (t.length > 6) break; // ya no es el contador
+        }
+        break;
+      }
+    }
+
+    // Hora: texto del último anchor de la fila ("Hoy 20:00", "Ayer 09:12", fecha).
+    var time = anchors.length > 1
+      ? anchors[anchors.length - 1].textContent.replace(/\s+/g, ' ').trim() : '';
+    if (time === title) time = '';
+
+    return {
+      tid: tid,
+      title: title,
+      author: author,
+      replies: replies,
+      time: time,
+      url: 'https://forocoches.com/foro/showthread.php?t=' + tid
+    };
+  }
+
+  function parseListDoc(doc) {
+    var seen = new Set();
+    var threads = [];
+    doc.querySelectorAll(THREAD_SEL).forEach(function (a) {
+      var tid = tidOf(a);
+      if (!tid || seen.has(tid) || inMenu(a)) return;
+      seen.add(tid);
+      var item = parseRow(rowFor(a, tid, doc), tid);
+      if (item) threads.push(item);
+    });
+    return threads;
+  }
+
+  // Enlaces del menú de la página VIVA (llevan el u= del usuario logueado; no se adivinan).
+  function menuLinks() {
+    var m = {};
+    document.querySelectorAll('.user-profile-menu-container a.menu-item').forEach(function (a) {
+      var h = a.getAttribute('href') || '';
+      if (!h) return;
+      if (h.indexOf('private.php') !== -1 && !m.pm) m.pm = a.href;
+      else if (h.indexOf('tab=mentions') !== -1 && !m.mentions) m.mentions = a.href;
+      else if (h.indexOf('tab=quotes') !== -1 && !m.quotes) m.quotes = a.href;
+      else if (h.indexOf('subscription.php') !== -1 && !m.favs) m.favs = a.href;
+      else if (h.indexOf('member.php') !== -1 && !m.profile) m.profile = a.href;
+    });
+    return m;
+  }
+
+  // API pública para la app: carga un listado por fetch same-origin y lo entrega parseado.
+  window.fcLoadThreadList = function (url) {
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        // Challenge de Cloudflare: avisar a la app para que enseñe el WebView y lo resuelva
+        // el usuario como en el navegador.
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onListError('cloudflare');
+          return;
+        }
+        var payload = { url: url, menu: menuLinks(), threads: parseListDoc(doc) };
+        if (!payload.threads.length) {
+          AndroidShell.onListError('empty'); // canario: 0 hilos = probable cambio de HTML
+          return;
+        }
+        AndroidShell.onThreadList(JSON.stringify(payload));
+      })
+      .catch(function (e) { AndroidShell.onListError(String(e)); });
+  };
+})();

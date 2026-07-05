@@ -12,11 +12,15 @@ class ForocochesWebViewClient(
     private val context: Context,
     private val repo: IgnoreListRepository,
     private val keywordRepo: KeywordRepository,
-    private val onPageLoad: (() -> Unit)? = null
+    private val onPageLoad: ((String) -> Unit)? = null
 ) : WebViewClient() {
 
     private val contentJs: String by lazy {
         context.assets.open("content.js").bufferedReader().readText()
+    }
+
+    private val extractorJs: String by lazy {
+        context.assets.open("extractor.js").bufferedReader().readText()
     }
 
     private val adblockCss: String by lazy {
@@ -54,7 +58,7 @@ class ForocochesWebViewClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         if (!TrustedOrigins.isTrustedForocochesUrl(url)) {
-            onPageLoad?.invoke()
+            onPageLoad?.invoke(url)
             return
         }
         injectCss(view, adblockCss)
@@ -62,7 +66,8 @@ class ForocochesWebViewClient(
         view.evaluateJavascript("window.FC_CONFIG=${RemoteConfig.cachedJson(context)};", null)
         view.evaluateJavascript(contentJs, null)
         view.evaluateJavascript(settingsPanelJs, null)
-        onPageLoad?.invoke()
+        view.evaluateJavascript(extractorJs, null) // motor de datos del shell nativo (v2)
+        onPageLoad?.invoke(url)
     }
 
     private fun injectCss(view: WebView, css: String) {
