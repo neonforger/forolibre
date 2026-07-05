@@ -213,10 +213,11 @@
         }
       }
     }
-    // Promos personalizadas de FC (banner Amazon en hilos, skin móvil y escritorio):
-    // 'fc-custom-promo-wrap[-mobil]' es un contenedor de promo por diseño, fuera de posts.
+    // Promos de afiliado de FC (banner Amazon, skin móvil y escritorio). FC las INYECTA
+    // DENTRO del cuerpo de los posts (post_message_), así que se ocultan incondicionalmente:
+    // 'fc-custom-promo-wrap' es un contenedor de publi por diseño, nunca texto del usuario.
     for (const promo of document.querySelectorAll('[class*="fc-custom-promo-wrap"]')) {
-      if (!promo.closest('[id^="post_message_"], li.postbit')) hideEl(promo);
+      promo.style.setProperty('display', 'none', 'important');
     }
   }
 
@@ -253,6 +254,13 @@
   }
   hideAds();
   setTimeout(hideAds, 1200); // los ads de FC cargan async; reintento tras asentar
+  // Algunos banners (promos Amazon 'fc-custom-promo') se inyectan LAZY al hacer scroll,
+  // después de que el observer/temporizador ya pasaron: barremos también al desplazar.
+  var lastAdSweep = 0;
+  window.addEventListener('scroll', function () {
+    var now = Date.now();
+    if (now - lastAdSweep > 400) { lastAdSweep = now; hideAds(); }
+  }, { passive: true });
   setTimeout(runCanary, 1500); // tras asentar el render
 
   // Detectar navegación SPA (pushState) para re-filtrar al entrar en un hilo
