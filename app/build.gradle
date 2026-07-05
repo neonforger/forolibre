@@ -62,6 +62,11 @@ android {
             // Los builds release fallan arriba si no hay credenciales de firma completas.
             signingConfig releaseSigningReady ? signingConfigs.release : null
         }
+        debug {
+            // Rama v2-shell: paquete distinto para convivir en el mismo móvil con la
+            // app estable de testers (com.foroplus.app). NO mergear a main tal cual.
+            applicationIdSuffix ".v2"
+        }
     }
 
     compileOptions {
