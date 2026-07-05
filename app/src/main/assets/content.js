@@ -183,6 +183,40 @@
     }
   }
 
+  // ── Ocultar anuncios de FC (cajones OptiDigital + banner de afiliado tipo Amazon) ─
+  // OptiDigital y FC pintan sus ads con reglas `!important` que se cargan async, así que
+  // un CSS inyectado (misma especificidad, antes) o un display='' inline los pierde.
+  // Solución que gana SIEMPRE: display:none inline con prioridad `important` vía JS,
+  // reaplicado en cada mutación. FAIL-SAFE: nunca ocultamos algo que contenga hilos.
+  function hideEl(el) {
+    if (el && !el.querySelector('a[href*="showthread.php"]')) {
+      el.style.setProperty('display', 'none', 'important');
+    }
+  }
+
+  // Cajones de anuncio: el contenedor externo lleva data-optidigital-slot; el slot su id;
+  // más la barra fija inferior. NO tocamos '.optidigital-autoinread' (la lista de hilos).
+  function hideAdSlots() {
+    for (const el of document.querySelectorAll(
+      '[data-optidigital-slot],[id^="optidigital-adslot-"],.fixed_adslot,[id*="fixed_adslot"]'
+    )) hideEl(el);
+  }
+
+  // Banner de avisos: ocultar SOLO si lleva enlace de afiliado (amazon / redirección link.php).
+  function hideAdNotices() {
+    for (const box of document.querySelectorAll('.navbar_notice, #notices-wrapper')) {
+      for (const a of box.querySelectorAll('a')) {
+        const href = (a.getAttribute('href') || '').toLowerCase();
+        if (href.indexOf('amazon') !== -1 || href.indexOf('amzn') !== -1 || href.indexOf('link.php') !== -1) {
+          hideEl(box.closest('.navbar_notice') || box);
+          break;
+        }
+      }
+    }
+  }
+
+  function hideAds() { hideAdSlots(); hideAdNotices(); }
+
   // ── Canario: avisa si los selectores dejan de encontrar datos ───────────────
   // (datos presentes en la página pero parser devuelve 0 => probable cambio de HTML de FC)
   function runCanary() {
@@ -212,6 +246,8 @@
   } else {
     filterThreads(getThreadRows());
   }
+  hideAds();
+  setTimeout(hideAds, 1200); // los ads de FC cargan async; reintento tras asentar
   setTimeout(runCanary, 1500); // tras asentar el render
 
   // Detectar navegación SPA (pushState) para re-filtrar al entrar en un hilo
@@ -230,6 +266,7 @@
   });
 
   const observer = new MutationObserver(function (mutations) {
+    hideAds();
     if (isThreadPage()) {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {

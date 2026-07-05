@@ -73,6 +73,8 @@ class MainActivity : AppCompatActivity() {
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
+            // Respeta el tamaño de letra configurado en el sistema (accesibilidad), sin UI extra.
+            textZoom = (this@MainActivity.resources.configuration.fontScale * 100).toInt()
             userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         }
         CookieManager.getInstance().apply {
