@@ -52,7 +52,10 @@ fun parseForumListPayload(json: String): List<ForumTab> {
 data class ShellPayload(
     val url: String,
     val menu: MenuLinks,
-    val threads: List<ThreadItem>
+    val threads: List<ThreadItem>,
+    val pmCount: Int = 0,
+    val quotesCount: Int = 0,
+    val mentionsCount: Int = 0
 ) {
     /** Página del listado que representa este payload (forumdisplay ...&page=N). */
     val page: Int
@@ -89,7 +92,13 @@ fun parseThreadListPayload(json: String): ShellPayload? {
                 )
             )
         }
-        ShellPayload(root.optString("url"), menu, list)
+        val counts = root.optJSONObject("counts")
+        ShellPayload(
+            root.optString("url"), menu, list,
+            pmCount = counts?.optInt("pm") ?: 0,
+            quotesCount = counts?.optInt("quotes") ?: 0,
+            mentionsCount = counts?.optInt("mentions") ?: 0
+        )
     } catch (_: Exception) {
         null
     }

@@ -294,6 +294,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (parsed.menu.pm != null || parsed.menu.profile != null) menuLinks = parsed.menu
+        updateBadges(parsed.pmCount, parsed.quotesCount, parsed.mentionsCount)
 
         // Filtrado nativo: ignorados y keywords (mismos datos que usa content.js).
         val ignored = repo.getIgnoredUsers().map { it.lowercase() }.toHashSet()
@@ -312,6 +313,24 @@ class MainActivity : AppCompatActivity() {
         if (parsed.page <= 1) adapter.submit(visible) else adapter.append(visible)
         listEmpty.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
         listEmpty.text = "No hay hilos que mostrar"
+    }
+
+    /** Badges de la barra inferior: MP en Perfil, citas en Citas, menciones en Menciones.
+     *  Los contadores vienen gratis en el HTML de cada listado (cero peticiones extra). */
+    private fun updateBadges(pm: Int, quotes: Int, mentions: Int) {
+        fun set(id: Int, n: Int) {
+            if (n > 0) {
+                bottomNav.getOrCreateBadge(id).apply {
+                    number = n
+                    backgroundColor = android.graphics.Color.parseColor("#C8102E")
+                }
+            } else {
+                bottomNav.removeBadge(id)
+            }
+        }
+        set(R.id.nav_notif, mentions)
+        set(R.id.nav_quotes, quotes)
+        set(R.id.nav_profile, pm)
     }
 
     private fun onThreadListError(reason: String) {

@@ -96,6 +96,23 @@
     return threads;
   }
 
+  // Contadores del menú (MP / citas / menciones) del doc RECIÉN traído — misma lógica
+  // que NotificationFetcher.parseCounts en Kotlin: mapear por href, nunca por posición.
+  function menuCounts(doc) {
+    var c = { pm: 0, quotes: 0, mentions: 0 };
+    doc.querySelectorAll('a.menu-item').forEach(function (a) {
+      var w = a.querySelector('.user-notifications-count-wrapper');
+      if (!w) return;
+      var m = (w.textContent || '').match(/\d+/);
+      var n = m ? parseInt(m[0], 10) : 0;
+      var h = a.getAttribute('href') || '';
+      if (h.indexOf('private.php') !== -1) c.pm = n;
+      else if (h.indexOf('tab=quotes') !== -1) c.quotes = n;
+      else if (h.indexOf('tab=mentions') !== -1) c.mentions = n;
+    });
+    return c;
+  }
+
   // Enlaces del menú de la página VIVA (llevan el u= del usuario logueado; no se adivinan).
   function menuLinks() {
     var m = {};
@@ -125,6 +142,9 @@
         doc.querySelectorAll('a[href*="forumdisplay.php?f="]').forEach(function (a) {
           var m = (a.getAttribute('href') || '').match(/[?&]f=(\d+)/);
           if (!m) return;
+          // Las "zonas" contenedoras (Zona ForoCoches, Zona Técnica...) son títulos
+          // h1.forum-zone-title sin hilos propios: fuera de las pestañas.
+          if (a.closest && a.closest('h1, h2, h3, .forum-zone-title')) return;
           var name = a.textContent.replace(/\s+/g, ' ').trim();
           if (!name || name.length > 40 || seen.has(m[1])) return;
           seen.add(m[1]);
@@ -152,7 +172,7 @@
           AndroidShell.onListError('cloudflare');
           return;
         }
-        var payload = { url: url, menu: menuLinks(), threads: parseListDoc(doc) };
+        var payload = { url: url, menu: menuLinks(), counts: menuCounts(doc), threads: parseListDoc(doc) };
         if (!payload.threads.length) {
           AndroidShell.onListError('empty'); // canario: 0 hilos = probable cambio de HTML
           return;
