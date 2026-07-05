@@ -213,6 +213,11 @@
         }
       }
     }
+    // Promos personalizadas de FC (banner Amazon en hilos, skin móvil y escritorio):
+    // 'fc-custom-promo-wrap[-mobil]' es un contenedor de promo por diseño, fuera de posts.
+    for (const promo of document.querySelectorAll('[class*="fc-custom-promo-wrap"]')) {
+      if (!promo.closest('[id^="post_message_"], li.postbit')) hideEl(promo);
+    }
   }
 
   function hideAds() { hideAdSlots(); hideAdNotices(); }

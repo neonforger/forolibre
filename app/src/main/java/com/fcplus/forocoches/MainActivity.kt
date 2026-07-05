@@ -66,6 +66,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureWebView() {
+        // Solo en builds debuggable (nunca en el release de Play): inspección remota del WebView.
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
