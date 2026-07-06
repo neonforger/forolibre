@@ -202,16 +202,13 @@
     )) hideEl(el);
   }
 
-  // Banner de avisos: ocultar SOLO si lleva enlace de afiliado (amazon / redirección link.php).
+  // Barra de avisos superior: es un hueco de PROMOS por diseño (Amazon, phonegest, lo que
+  // toque cada semana), no estructura del foro. Enfoque estructural: se oculta SIEMPRE,
+  // sin mirar el dominio — así no perseguimos anunciantes uno a uno.
   function hideAdNotices() {
     for (const box of document.querySelectorAll('.navbar_notice, #notices-wrapper')) {
-      for (const a of box.querySelectorAll('a')) {
-        const href = (a.getAttribute('href') || '').toLowerCase();
-        if (href.indexOf('amazon') !== -1 || href.indexOf('amzn') !== -1 || href.indexOf('link.php') !== -1) {
-          hideEl(box.closest('.navbar_notice') || box);
-          break;
-        }
-      }
+      // Sin fail-safe: aunque la promo enlace a un hilo de FC, sigue siendo promo.
+      (box.closest('.navbar_notice') || box).style.setProperty('display', 'none', 'important');
     }
     // Promos de afiliado de FC (banner Amazon, skin móvil y escritorio). FC las INYECTA
     // DENTRO del cuerpo de los posts (post_message_), así que se ocultan incondicionalmente:
