@@ -72,6 +72,11 @@ class MainActivity : AppCompatActivity() {
     // post y las tarjetas del panel leen de aquí.
     private val replyQuotes = LinkedHashMap<String, PostItem>()
 
+    // ── Editor BBCode + smilies (Bloque A) ──
+    private lateinit var bbcode: BbcodeEditor
+    private var smileyCache: List<Smiley>? = null
+    private var smileyDialogPending = false
+
     // ── Panel de login nativo (Fase 3) ──
     private lateinit var loginPanel: View
     private lateinit var loginUser: android.widget.EditText
@@ -229,7 +234,8 @@ class MainActivity : AppCompatActivity() {
                 onThreadData = { json -> runOnUiThread { onThreadJson(json) } },
                 onThreadDataError = { reason -> runOnUiThread { onThreadError(reason) } },
                 onReply = { json -> runOnUiThread { onReplyResult(json) } },
-                onLogin = { json -> runOnUiThread { onLoginResult(json) } }
+                onLogin = { json -> runOnUiThread { onLoginResult(json) } },
+                onSmiliesData = { json -> runOnUiThread { onSmiliesJson(json) } }
             ),
             "AndroidShell"
         )
@@ -323,6 +329,20 @@ class MainActivity : AppCompatActivity() {
         replyQuotesContainer = findViewById(R.id.reply_quotes)
         replySend.setOnClickListener { submitReply() }
         replyCancel.setOnClickListener { hideReply() }
+
+        // Barra de formato BBCode (Bloque A): el editor propio es SIEMPRE el por defecto.
+        bbcode = BbcodeEditor(this, replyInput)
+        findViewById<View>(R.id.fmt_bold).setOnClickListener { bbcode.wrap("[B]", "[/B]") }
+        findViewById<View>(R.id.fmt_italic).setOnClickListener { bbcode.wrap("[I]", "[/I]") }
+        findViewById<View>(R.id.fmt_under).setOnClickListener { bbcode.wrap("[U]", "[/U]") }
+        findViewById<View>(R.id.fmt_color).setOnClickListener { bbcode.pickColor() }
+        findViewById<View>(R.id.fmt_size).setOnClickListener { bbcode.pickSize() }
+        findViewById<View>(R.id.fmt_align).setOnClickListener { bbcode.pickAlign() }
+        findViewById<View>(R.id.fmt_list).setOnClickListener { bbcode.pickList() }
+        findViewById<View>(R.id.fmt_img).setOnClickListener { bbcode.askImg() }
+        findViewById<View>(R.id.fmt_url).setOnClickListener { bbcode.askUrl() }
+        findViewById<View>(R.id.fmt_embed).setOnClickListener { bbcode.pickEmbed() }
+        findViewById<View>(R.id.fmt_smiley).setOnClickListener { openSmileyPicker() }
 
         postAdapter = PostAdapter(
             onLinkClick = { url -> onPostLinkClick(url) },
@@ -480,6 +500,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Smilies reales de FC: se piden una vez por sesión y se cachean en memoria. */
+    private fun openSmileyPicker() {
+        smileyCache?.let { bbcode.showSmilies(it); return }
+        if (!engineReady) { toast("Conectando con el foro…"); return }
+        smileyDialogPending = true
+        toast("Cargando emoticonos…")
+        webView.evaluateJavascript("window.fcLoadSmilies&&fcLoadSmilies()", null)
+    }
+
+    private fun onSmiliesJson(json: String) {
+        val list = parseSmilies(json)
+        if (list.isEmpty()) return
+        smileyCache = list
+        if (smileyDialogPending) {
+            smileyDialogPending = false
+            if (isReplyVisible) bbcode.showSmilies(list)
+        }
+    }
+
     /** Escapa un String para incrustarlo entre comillas simples en evaluateJavascript. */
     private fun jsEscape(s: String): String =
         s.replace("\\", "\\\\").replace("'", "\\'")
@@ -490,10 +529,12 @@ class MainActivity : AppCompatActivity() {
         val body = replyInput.text.toString().trim()
         if (body.isEmpty() && replyQuotes.isEmpty()) { toast("Escribe algo antes de enviar"); return }
         if (currentThreadTid.isEmpty()) { toast("No se pudo identificar el hilo"); return }
-        // Mensaje final = citas (BBCode) + texto del usuario.
+        // Mensaje final = citas (BBCode) + texto del usuario + firma invisible de la app
+        // (el usuario no la ve en el editor; se añade al enviar, con aire por encima).
         val quotes = replyQuotes.values.joinToString("") { quoteBlock(it) }
-        val msg = (quotes + body).trim()
+        var msg = (quotes + body).trim()
         if (msg.isEmpty()) { toast("Escribe algo antes de enviar"); return }
+        msg += "\n\n\n[SIZE=1]Enviado desde ForoPlus[/SIZE]"
         sendingReply = true
         replySend.isEnabled = false
         replySend.text = "Enviando…"

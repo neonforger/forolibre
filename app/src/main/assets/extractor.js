@@ -304,6 +304,10 @@
         });
         params.set('do', 'postreply');
         if (!params.has('message')) params.set('message', message);
+        // El form de FC viene con wysiwyg=1 (editor visual HTML): en ese modo los \n
+        // se colapsan como espacio en blanco. Nuestro composer manda texto plano +
+        // BBCode → wysiwyg=0 para que vBulletin convierta los \n en saltos reales.
+        params.set('wysiwyg', '0');
         return fetch(base + '?do=postreply', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -389,6 +393,26 @@
         });
       })
       .catch(function (e) { AndroidShell.onLoginResult(JSON.stringify({ posted: false, error: String(e) })); });
+  };
+
+  // ── Smilies de FC (Bloque A: editor) ───────────────────────────────────────
+  // La página getsmilies trae <img id="smilie_N" alt=":codigo:" title="nombre">.
+  window.fcLoadSmilies = function () {
+    fetch('https://forocoches.com/foro/misc.php?do=getsmilies&editorid=vB_Editor_001', { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var list = [];
+        doc.querySelectorAll('img[id^="smilie_"]').forEach(function (im) {
+          var code = im.getAttribute('alt') || '';
+          if (!code) return;
+          var src = '';
+          try { src = new URL(im.getAttribute('src'), 'https://forocoches.com/foro/').href; } catch (e) {}
+          if (src) list.push({ code: code, src: src });
+        });
+        if (list.length) AndroidShell.onSmilies(JSON.stringify({ smilies: list }));
+      })
+      .catch(function (e) { /* sin smilies el editor sigue funcionando */ });
   };
 
   // API pública para la app: carga un listado por fetch same-origin y lo entrega parseado.

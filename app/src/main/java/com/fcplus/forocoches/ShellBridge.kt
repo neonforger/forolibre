@@ -14,7 +14,8 @@ class ShellBridge(
     private val onThreadData: (String) -> Unit,
     private val onThreadDataError: (String) -> Unit,
     private val onReply: (String) -> Unit,
-    private val onLogin: (String) -> Unit
+    private val onLogin: (String) -> Unit,
+    private val onSmiliesData: (String) -> Unit
 ) {
     @JavascriptInterface
     fun onThreadList(json: String) = onList(json)
@@ -36,4 +37,7 @@ class ShellBridge(
 
     @JavascriptInterface
     fun onLoginResult(json: String) = onLogin(json)
+
+    @JavascriptInterface
+    fun onSmilies(json: String) = onSmiliesData(json)
 }

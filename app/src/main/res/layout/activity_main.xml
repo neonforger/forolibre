@@ -334,6 +334,82 @@
                         android:importantForAutofill="no" />
                 </LinearLayout>
             </ScrollView>
+
+            <!-- Barra de formato BBCode (Bloque A): siempre visible encima del teclado. -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#F5F5F5"
+                android:elevation="4dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp">
+
+                    <TextView
+                        android:id="@+id/fmt_bold"
+                        style="@style/FmtButton"
+                        android:text="B"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/fmt_italic"
+                        style="@style/FmtButton"
+                        android:text="I"
+                        android:textStyle="italic" />
+
+                    <TextView
+                        android:id="@+id/fmt_under"
+                        style="@style/FmtButton"
+                        android:text="U" />
+
+                    <TextView
+                        android:id="@+id/fmt_color"
+                        style="@style/FmtButton"
+                        android:text="A"
+                        android:textColor="#C8102E"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/fmt_size"
+                        style="@style/FmtButton"
+                        android:text="Tt" />
+
+                    <TextView
+                        android:id="@+id/fmt_align"
+                        style="@style/FmtButton"
+                        android:text="≡" />
+
+                    <TextView
+                        android:id="@+id/fmt_list"
+                        style="@style/FmtButton"
+                        android:text="•‒" />
+
+                    <TextView
+                        android:id="@+id/fmt_img"
+                        style="@style/FmtButton"
+                        android:text="🖼" />
+
+                    <TextView
+                        android:id="@+id/fmt_url"
+                        style="@style/FmtButton"
+                        android:text="🔗" />
+
+                    <TextView
+                        android:id="@+id/fmt_embed"
+                        style="@style/FmtButton"
+                        android:text="▶" />
+
+                    <TextView
+                        android:id="@+id/fmt_smiley"
+                        style="@style/FmtButton"
+                        android:text="🙂" />
+                </LinearLayout>
+            </HorizontalScrollView>
         </LinearLayout>
 
         <!-- Capa LOGIN nativa (Fase 3): formulario propio. Las credenciales las envía
