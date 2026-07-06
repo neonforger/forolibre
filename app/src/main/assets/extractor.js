@@ -165,12 +165,35 @@
     fetch(url, { credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) throw new Error('http ' + r.status);
-        return r.text();
+        return r.text().then(function (html) { return { html: html, finalUrl: r.url || '' }; });
       })
-      .then(function (html) {
+      .then(function (res) {
+        var html = res.html;
         var doc = new DOMParser().parseFromString(html, 'text/html');
         if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
           AndroidShell.onThreadError('cloudflare');
+          return;
+        }
+        // Hilo restringido (+HD de invitado o sin antigüedad): FC NO enseña login,
+        // REDIRIGE a una página informativa misc.php?do=page&template=Info. La señal
+        // fiable es la URL final tras redirecciones. Extraemos la MISMA info que
+        // enseña el foro (mensaje + metadatos + link de invitación) para reproducirla
+        // con los estilos de la app.
+        if (res.finalUrl.indexOf('misc.php') !== -1 || res.finalUrl.indexOf('showthread.php') === -1) {
+          var info = { msg: '', meta: '', invite: '' };
+          var strongs = doc.querySelectorAll('strong');
+          for (var si = 0; si < strongs.length; si++) {
+            var st = (strongs[si].textContent || '').replace(/\s+/g, ' ').trim();
+            // El aviso de FC es el <strong> largo TODO en mayúsculas.
+            if (st.length > 25 && st === st.toUpperCase() && /[A-ZÁÉÍÓÚÑ]/.test(st)) { info.msg = st; break; }
+          }
+          var meta = doc.querySelector('.smallfont-gray');
+          if (meta) info.meta = (meta.textContent || '').replace(/\s+/g, ' ').trim();
+          var inv = doc.querySelector('a[href*="/invitacion"]');
+          if (inv) {
+            try { info.invite = new URL(inv.getAttribute('href'), 'https://forocoches.com/').href; } catch (e) {}
+          }
+          AndroidShell.onThreadError('restricted:' + JSON.stringify(info));
           return;
         }
         var tid = (url.match(/[?&]t=(\d+)/) || [])[1] || '';
@@ -227,6 +250,12 @@
           posts.push({ pid: pid, author: author, avatar: avatar, date: date, html: m.innerHTML });
         });
         if (!posts.length) {
+          // Sin posts + form de login en la página = hilo que requiere cuenta (+HD
+          // de invitado, p. ej.). La app enseña NUESTRO login nativo, nunca el foro.
+          if (doc.querySelector('input[name="vb_login_username"]')) {
+            AndroidShell.onThreadError('login');
+            return;
+          }
           AndroidShell.onThreadError('empty');
           return;
         }
@@ -248,6 +277,118 @@
         }));
       })
       .catch(function (e) { AndroidShell.onThreadError(String(e)); });
+  };
+
+  // ── Responder desde UI nativa (Fase 3) ─────────────────────────────────────
+  // NO reimplementamos el protocolo: traemos el form REAL de FC por fetch same-origin,
+  // rellenamos solo 'message' y reenviamos con TODOS sus campos ocultos (securitytoken,
+  // posthash, poststarttime, signature...) tal cual. FC lo acepta como su propio envío.
+  window.fcSubmitReply = function (tid, message) {
+    var base = 'https://forocoches.com/foro/newreply.php';
+    fetch(base + '?do=newreply&t=' + tid, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var forms = [].slice.call(doc.querySelectorAll('form'));
+        var f = forms.filter(function (x) { return x.querySelector('textarea[name="message"]'); })[0];
+        if (!f) { AndroidShell.onReplyResult(JSON.stringify({ ok: false, error: 'no-form' })); return null; }
+        var params = new URLSearchParams();
+        f.querySelectorAll('input, textarea, select').forEach(function (el) {
+          var nm = el.getAttribute('name'); if (!nm) return;
+          var type = (el.getAttribute('type') || '').toLowerCase();
+          if (type === 'file') return;
+          if (type === 'submit') { if (nm === 'sbutton') params.set(nm, el.value || 'Responder'); return; }
+          if (nm === 'preview') return;
+          if (nm === 'message') { params.set(nm, message); return; }
+          params.set(nm, el.value || '');
+        });
+        params.set('do', 'postreply');
+        if (!params.has('message')) params.set('message', message);
+        return fetch(base + '?do=postreply', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString()
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        // ÉXITO = vBulletin redirige a showthread.php (r.url es la URL FINAL tras la
+        // redirección). OJO: no vale mirar si hay textarea "message" en el HTML — la
+        // página del hilo lleva quick-reply con ese mismo name y daba falsos errores.
+        var finalUrl = r.url || '';
+        return r.text().then(function (html) {
+          var ok = finalUrl.indexOf('showthread.php') !== -1;
+          if (!ok && /showthread\.php\?p=\d+/.test(html) && html.indexOf('newreply.php?do=postreply') === -1) {
+            ok = true; // interstitial "gracias por su mensaje" con refresh al hilo
+          }
+          var errM = '';
+          if (!ok) {
+            var em = html.match(/<(?:div|li|p)[^>]*class="[^"]*(?:standard_error|error|blockrow)[^"]*"[^>]*>\s*([^<]{4,200})/i);
+            errM = em ? em[1].replace(/\s+/g, ' ').trim() : ('http ' + r.status);
+          }
+          AndroidShell.onReplyResult(JSON.stringify({ ok: ok, error: errM }));
+        });
+      })
+      .catch(function (e) { AndroidShell.onReplyResult(JSON.stringify({ ok: false, error: String(e) })); });
+  };
+
+  // ── Login desde UI nativa (Fase 3) ─────────────────────────────────────────
+  // Mismo principio que fcSubmitReply: traemos el form REAL de login de FC, copiamos
+  // sus campos (securitytoken incluido) y solo rellenamos usuario y contraseña. El
+  // POST sale same-origin del WebView, así que las cookies de sesión quedan puestas.
+  // La credencial la teclea el usuario en la app y NUNCA sale hacia otro dominio.
+  window.fcLogin = function (user, pass) {
+    fetch('https://forocoches.com/foro/login.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onLoginResult(JSON.stringify({ posted: false, error: 'cloudflare' }));
+          return null;
+        }
+        var f = null;
+        doc.querySelectorAll('form').forEach(function (x) {
+          if (!f && x.querySelector('input[name="vb_login_username"]')) f = x;
+        });
+        var params = new URLSearchParams();
+        if (f) {
+          f.querySelectorAll('input').forEach(function (el) {
+            var nm = el.getAttribute('name'); if (!nm) return;
+            var type = (el.getAttribute('type') || '').toLowerCase();
+            if (type === 'submit' || type === 'file') return;
+            params.set(nm, el.value || '');
+          });
+        }
+        params.set('vb_login_username', user);
+        params.set('vb_login_password', pass);
+        // md5 vacío = vBulletin valida la contraseña en servidor (comportamiento estándar
+        // cuando el JS del form no corre).
+        params.set('vb_login_md5password', '');
+        params.set('vb_login_md5password_utf', '');
+        params.set('cookieuser', '1');
+        params.set('do', 'login');
+        if (!params.has('securitytoken') || !params.get('securitytoken')) params.set('securitytoken', 'guest');
+        if (!params.has('s')) params.set('s', '');
+        return fetch('https://forocoches.com/foro/login.php?do=login', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString()
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        return r.text().then(function (loginHtml) {
+          // El HTML del menú es IDÉNTICO para invitados y logueados (esqueleto), así
+          // que el veredicto de éxito lo da Kotlin mirando la cookie de sesión
+          // (bbuserid, HttpOnly — visible para CookieManager, no para JS). Aquí solo
+          // extraemos el posible mensaje de error del formulario.
+          var err = '';
+          var em = loginHtml.match(/<(?:div|li|p)[^>]*class="[^"]*(?:standard_error|error|blockrow)[^"]*"[^>]*>\s*([^<]{4,200})/i);
+          if (em) err = em[1].replace(/\s+/g, ' ').trim();
+          AndroidShell.onLoginResult(JSON.stringify({ posted: true, error: err }));
+        });
+      })
+      .catch(function (e) { AndroidShell.onLoginResult(JSON.stringify({ posted: false, error: String(e) })); });
   };
 
   // API pública para la app: carga un listado por fetch same-origin y lo entrega parseado.

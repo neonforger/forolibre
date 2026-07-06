@@ -52,7 +52,39 @@ class MainActivity : AppCompatActivity() {
     private lateinit var threadPageInfo: TextView
     private lateinit var postAdapter: PostAdapter
 
+    // ── Pantalla "hilo restringido" (+HD) ──
+    private lateinit var restrictedView: View
+    private lateinit var restrictedMsg: TextView
+    private lateinit var restrictedMeta: TextView
+    private lateinit var restrictedLogin: TextView
+    private lateinit var restrictedInvite: TextView
+    private var restrictedInviteUrl = ""
+
+    // ── Panel de respuesta nativo (Fase 3) ──
+    private lateinit var replyPanel: View
+    private lateinit var replyInput: android.widget.EditText
+    private lateinit var replySend: TextView
+    private lateinit var replyCancel: TextView
+    private lateinit var replyQuotesContainer: android.widget.LinearLayout
+    private var isReplyVisible = false
+    private var sendingReply = false
+    // Citas de la respuesta en curso (única fuente de verdad, ordenadas). El "+" de cada
+    // post y las tarjetas del panel leen de aquí.
+    private val replyQuotes = LinkedHashMap<String, PostItem>()
+
+    // ── Panel de login nativo (Fase 3) ──
+    private lateinit var loginPanel: View
+    private lateinit var loginUser: android.widget.EditText
+    private lateinit var loginPass: android.widget.EditText
+    private lateinit var loginError: TextView
+    private lateinit var loginSubmit: TextView
+    private var isLoginVisible = false
+    private var sendingLogin = false
+    private var pendingThreadUrl = ""      // hilo que pidió login (+HD invitado): se reabre al entrar
+    private var pendingThreadTitle = ""
+
     private var currentThreadUrl = ""      // URL base del hilo abierto (sin &page=)
+    private var currentThreadTid = ""      // t= del hilo abierto (para responder/citar)
     private var threadPage = 1
     private var threadPageCount = 1
     private var loadingThreadPage = false
@@ -73,7 +105,6 @@ class MainActivity : AppCompatActivity() {
     private var touchDownY = 0f
 
     companion object {
-        private const val LOGIN_URL = "https://forocoches.com/foro/login.php"
         private const val PREFS = "shell_prefs"
         private const val PREF_LAST_FID = "last_fid"
     }
@@ -83,8 +114,21 @@ class MainActivity : AppCompatActivity() {
         return if (page > 1) "$base&page=$page" else base
     }
 
-    /** Con sesión, el menú de FC trae el enlace a MP; sin ella, somos invitado. */
-    private fun isLoggedIn() = menuLinks?.pm != null
+    /**
+     * Sesión = cookie bbuserid de vBulletin (la pone el login "recuérdame"; los invitados
+     * nunca la tienen). OJO: el HTML del menú de FC NO sirve de señal — el esqueleto con
+     * private.php/member.php se sirve IDÉNTICO a invitados y logueados (verificado por CDP).
+     * CookieManager sí ve las cookies HttpOnly, a diferencia del document.cookie de JS.
+     */
+    private fun isLoggedIn(): Boolean {
+        val c = CookieManager.getInstance().getCookie("https://forocoches.com") ?: return false
+        return c.contains("bbuserid=")
+    }
+
+    /** La pestaña de cuenta de la barra inferior: "Entrar" de invitado, "Perfil" con sesión. */
+    private fun updateAccountNavItem() {
+        bottomNav.menu.findItem(R.id.nav_profile)?.title = if (isLoggedIn()) "Perfil" else "Entrar"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -139,7 +183,9 @@ class MainActivity : AppCompatActivity() {
         root.setBackgroundColor(android.graphics.Color.WHITE)
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            // El teclado (IME) empuja el contenido hacia arriba para que el composer no quede tapado.
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
             insets
         }
         WindowInsetsControllerCompat(window, root).apply {
@@ -181,7 +227,9 @@ class MainActivity : AppCompatActivity() {
                 onError = { reason -> runOnUiThread { onThreadListError(reason) } },
                 onForums = { json -> runOnUiThread { onForumListJson(json) } },
                 onThreadData = { json -> runOnUiThread { onThreadJson(json) } },
-                onThreadDataError = { reason -> runOnUiThread { onThreadError(reason) } }
+                onThreadDataError = { reason -> runOnUiThread { onThreadError(reason) } },
+                onReply = { json -> runOnUiThread { onReplyResult(json) } },
+                onLogin = { json -> runOnUiThread { onLoginResult(json) } }
             ),
             "AndroidShell"
         )
@@ -216,14 +264,15 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        updateAccountNavItem()
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_home -> { showNative(); if (!listLoaded) requestThreadList(1); true }
                 R.id.nav_favs -> { openWeb(menuLinks?.favs ?: "https://forocoches.com/foro/subscription.php"); true }
-                // Sin sesión estas secciones no existen: llevamos al login directamente.
-                R.id.nav_notif -> { openWeb(if (isLoggedIn()) menuLinks?.mentions else LOGIN_URL); true }
-                R.id.nav_quotes -> { openWeb(if (isLoggedIn()) menuLinks?.quotes else LOGIN_URL); true }
-                R.id.nav_profile -> { openWeb(if (isLoggedIn()) menuLinks?.profile else LOGIN_URL); true }
+                // Sin sesión estas secciones no existen: enseñamos NUESTRO login nativo.
+                R.id.nav_notif -> { if (isLoggedIn()) openWeb(menuLinks?.mentions) else showLogin(); true }
+                R.id.nav_quotes -> { if (isLoggedIn()) openWeb(menuLinks?.quotes) else showLogin(); true }
+                R.id.nav_profile -> { if (isLoggedIn()) openWeb(menuLinks?.profile) else showLogin(); true }
                 else -> false
             }
         }
@@ -267,17 +316,37 @@ class MainActivity : AppCompatActivity() {
     // ── Hilo nativo (Fase 2) ─────────────────────────────────────────────────
 
     private fun configureThreadPanel() {
-        postAdapter = PostAdapter { url -> onPostLinkClick(url) }
+        replyPanel = findViewById(R.id.reply_panel)
+        replyInput = findViewById(R.id.reply_input)
+        replySend = findViewById(R.id.reply_send)
+        replyCancel = findViewById(R.id.reply_cancel)
+        replyQuotesContainer = findViewById(R.id.reply_quotes)
+        replySend.setOnClickListener { submitReply() }
+        replyCancel.setOnClickListener { hideReply() }
+
+        postAdapter = PostAdapter(
+            onLinkClick = { url -> onPostLinkClick(url) },
+            // Citar: añade la cita y abre la pestaña de respuesta.
+            onQuote = { post -> quotePost(post) },
+            // "+": alterna la cita en la respuesta (sin abrir el panel).
+            onMultiquoteToggle = { post -> toggleMultiquote(post) },
+            isSelected = { pid -> replyQuotes.containsKey(pid) }
+        )
         val lm = LinearLayoutManager(this)
         postList.layoutManager = lm
         postList.adapter = postAdapter
         // Página siguiente bajo demanda al acercarse al final (misma regla anti-crawler).
         postList.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (postAdapter.itemCount == 0) return
+                // Indicador de página según lo que se VE (sube y baja con el scroll,
+                // en ambas direcciones), no según lo último cargado.
+                val first = lm.findFirstVisibleItemPosition()
+                if (first >= 0) showThreadPageInfo(postAdapter.pageAt(first))
                 if (dy <= 0 || loadingThreadPage) return
                 if (threadPage >= threadPageCount) return
                 val last = lm.findLastVisibleItemPosition()
-                if (postAdapter.itemCount > 0 && last >= postAdapter.itemCount - 5) {
+                if (last >= postAdapter.itemCount - 5) {
                     requestThreadPage(threadPage + 1)
                 }
             }
@@ -289,16 +358,316 @@ class MainActivity : AppCompatActivity() {
                 webView.loadUrl(threadPageUrl(threadPage))
             }
         }
+        // Responder: abre la pestaña de respuesta nativa (con las multicitas pendientes,
+        // si las hay). El texto se manda con fcSubmitReply, que reusa el securitytoken
+        // del form real de FC (cero reimplementación del posteo).
+        findViewById<View>(R.id.thread_reply).setOnClickListener {
+            if (currentThreadTid.isEmpty()) return@setOnClickListener
+            if (!isLoggedIn()) { showLogin(); return@setOnClickListener }
+            openReply()
+        }
+        restrictedView = findViewById(R.id.thread_restricted)
+        restrictedMsg = findViewById(R.id.restricted_msg)
+        restrictedMeta = findViewById(R.id.restricted_meta)
+        restrictedLogin = findViewById(R.id.restricted_login)
+        restrictedInvite = findViewById(R.id.restricted_invite)
+        restrictedLogin.setOnClickListener { showLogin() }
+        restrictedInvite.setOnClickListener {
+            // Guía de invitaciones: fuera de la app (el foro no se ve dentro).
+            if (restrictedInviteUrl.isNotEmpty()) {
+                try {
+                    startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(restrictedInviteUrl)
+                        ).addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                    )
+                } catch (_: Exception) { }
+            }
+        }
+        configureLoginPanel()
     }
+
+    /** Hilo restringido: reproduce la info de FC con nuestros estilos + acceso al login. */
+    private fun showRestricted(msg: String, meta: String, inviteUrl: String) {
+        if (!isLoggedIn()) {
+            // El login (botón o pestaña) reabrirá este hilo al entrar.
+            pendingThreadUrl = currentThreadUrl
+            pendingThreadTitle = threadTitle.text.toString()
+        }
+        restrictedMsg.text = msg.ifEmpty { "Este hilo no está disponible con tu cuenta actual" }
+        restrictedMeta.text = meta
+        restrictedMeta.visibility = if (meta.isEmpty()) View.GONE else View.VISIBLE
+        restrictedLogin.visibility = if (isLoggedIn()) View.GONE else View.VISIBLE
+        restrictedInviteUrl = inviteUrl
+        restrictedInvite.visibility = if (inviteUrl.isEmpty()) View.GONE else View.VISIBLE
+        restrictedView.visibility = View.VISIBLE
+    }
+
+    /** Indicador "Página X de Y" de la cabecera del hilo. */
+    private fun showThreadPageInfo(visiblePage: Int) {
+        threadPageInfo.text =
+            if (threadPageCount > 1) "Página $visiblePage de $threadPageCount" else ""
+    }
+
+    // ── Panel de respuesta nativo (Fase 3) ───────────────────────────────────
+
+    private fun quoteBlock(p: PostItem): String =
+        "[QUOTE=${p.author};${p.pid}]${postAdapter.quoteBodyOf(p)}[/QUOTE]\n"
+
+    /** "Citar" en un post: lo añade a la respuesta y abre la pestaña de respuesta. */
+    private fun quotePost(post: PostItem) {
+        if (!isLoggedIn()) { showLogin(); return }
+        replyQuotes[post.pid] = post
+        postAdapter.refreshSelection()
+        openReply()
+    }
+
+    /** "+" en un post: alterna su cita en la respuesta en curso (sin abrir el panel). */
+    private fun toggleMultiquote(post: PostItem) {
+        val added = if (replyQuotes.containsKey(post.pid)) {
+            replyQuotes.remove(post.pid); false
+        } else {
+            replyQuotes[post.pid] = post; true
+        }
+        postAdapter.refreshSelection()
+        if (isReplyVisible) renderReplyQuotes()
+        if (added) {
+            val n = replyQuotes.size
+            toast(if (n > 1) "Cita añadida ($n)" else "Cita añadida")
+        }
+    }
+
+    private fun openReply() {
+        isReplyVisible = true
+        replyPanel.visibility = View.VISIBLE
+        threadPanel.visibility = View.GONE
+        // Pantalla de escritura = sin barra de navegación: el teclado ocupa su hueco
+        // y se escribe cómodo (la barra no "sube" con el teclado).
+        bottomNav.visibility = View.GONE
+        renderReplyQuotes()
+        replyInput.requestFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showSoftInput(replyInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun hideReply() {
+        isReplyVisible = false
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(replyInput.windowToken, 0)
+        replyInput.clearFocus()
+        replyPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
+        threadPanel.visibility = View.VISIBLE
+    }
+
+    /** Reconstruye las tarjetas de cita del panel a partir de replyQuotes. */
+    private fun renderReplyQuotes() {
+        replyQuotesContainer.removeAllViews()
+        val inflater = layoutInflater
+        for (post in replyQuotes.values.toList()) {
+            val card = inflater.inflate(R.layout.item_reply_quote, replyQuotesContainer, false)
+            card.findViewById<TextView>(R.id.quote_author).text =
+                if (post.author.isNotEmpty()) "@${post.author}" else "(anónimo)"
+            val preview = postAdapter.quoteBodyOf(post).replace(Regex("\\s+"), " ").trim()
+            card.findViewById<TextView>(R.id.quote_preview).text = preview
+            card.findViewById<View>(R.id.quote_remove).setOnClickListener {
+                replyQuotes.remove(post.pid)
+                postAdapter.refreshSelection()
+                renderReplyQuotes()
+            }
+            replyQuotesContainer.addView(card)
+        }
+    }
+
+    /** Escapa un String para incrustarlo entre comillas simples en evaluateJavascript. */
+    private fun jsEscape(s: String): String =
+        s.replace("\\", "\\\\").replace("'", "\\'")
+            .replace("\r", "").replace("\n", "\\n")
+
+    private fun submitReply() {
+        if (sendingReply) return
+        val body = replyInput.text.toString().trim()
+        if (body.isEmpty() && replyQuotes.isEmpty()) { toast("Escribe algo antes de enviar"); return }
+        if (currentThreadTid.isEmpty()) { toast("No se pudo identificar el hilo"); return }
+        // Mensaje final = citas (BBCode) + texto del usuario.
+        val quotes = replyQuotes.values.joinToString("") { quoteBlock(it) }
+        val msg = (quotes + body).trim()
+        if (msg.isEmpty()) { toast("Escribe algo antes de enviar"); return }
+        sendingReply = true
+        replySend.isEnabled = false
+        replySend.text = "Enviando…"
+        webView.evaluateJavascript(
+            "window.fcSubmitReply&&fcSubmitReply('${jsEscape(currentThreadTid)}','${jsEscape(msg)}')",
+            null
+        )
+    }
+
+    private fun onReplyResult(json: String) {
+        sendingReply = false
+        replySend.isEnabled = true
+        replySend.text = "Enviar"
+        val ok: Boolean
+        val err: String
+        try {
+            val o = org.json.JSONObject(json)
+            ok = o.optBoolean("ok", false)
+            err = o.optString("error", "")
+        } catch (_: Exception) {
+            toast("No se pudo enviar la respuesta")
+            return
+        }
+        if (ok) {
+            replyInput.setText("")
+            replyQuotes.clear()
+            postAdapter.refreshSelection()
+            hideReply()
+            toast("Respuesta publicada")
+            // Refresca la última página para ver el post recién enviado (pid nuevo → se añade).
+            loadingThreadPage = false
+            requestThreadPage(threadPageCount)
+        } else {
+            toast(if (err.isNotEmpty()) err else "No se pudo enviar la respuesta")
+        }
+    }
+
+    // ── Panel de login nativo (Fase 3) ───────────────────────────────────────
+
+    private fun configureLoginPanel() {
+        loginPanel = findViewById(R.id.login_panel)
+        loginUser = findViewById(R.id.login_user)
+        loginPass = findViewById(R.id.login_pass)
+        loginError = findViewById(R.id.login_error)
+        loginSubmit = findViewById(R.id.login_submit)
+        loginSubmit.setOnClickListener { submitLogin() }
+        findViewById<View>(R.id.login_skip).setOnClickListener { hideLogin() }
+        // Registro: fuera de la app (navegador del sistema); el foro nunca se ve dentro.
+        findViewById<View>(R.id.login_register).setOnClickListener {
+            try {
+                startActivity(
+                    android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://forocoches.com/foro/register.php")
+                    ).addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                )
+            } catch (_: Exception) { }
+        }
+    }
+
+    private fun showLogin() {
+        isLoginVisible = true
+        loginPanel.visibility = View.VISIBLE
+        nativePanel.visibility = View.GONE
+        threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        bottomNav.visibility = View.GONE   // pantalla de escritura: teclado a pantalla limpia
+        loginError.visibility = View.GONE
+        loginUser.requestFocus()
+    }
+
+    private fun hideLogin() {
+        isLoginVisible = false
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(loginPanel.windowToken, 0)
+        loginPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
+        pendingThreadUrl = ""
+        pendingThreadTitle = ""
+        // Vuelve a donde estaba: al hilo si venía de uno CON contenido (un +HD que no
+        // cargó por falta de cuenta no cuenta), si no a la lista.
+        if (isThreadVisible && currentThreadUrl.isNotEmpty() && postAdapter.itemCount > 0) {
+            showThread()
+        } else {
+            showNative()
+            bottomNav.selectedItemId = R.id.nav_home
+        }
+    }
+
+    private fun submitLogin() {
+        if (sendingLogin) return
+        val user = loginUser.text.toString().trim()
+        val pass = loginPass.text.toString()
+        if (user.isEmpty() || pass.isEmpty()) {
+            loginError.text = "Rellena usuario y contraseña"
+            loginError.visibility = View.VISIBLE
+            return
+        }
+        if (!engineReady) {
+            loginError.text = "Conectando con el foro… prueba en unos segundos"
+            loginError.visibility = View.VISIBLE
+            return
+        }
+        sendingLogin = true
+        loginError.visibility = View.GONE
+        loginSubmit.text = "Entrando…"
+        webView.evaluateJavascript(
+            "window.fcLogin&&fcLogin('${jsEscape(user)}','${jsEscape(pass)}')", null
+        )
+    }
+
+    private fun onLoginResult(json: String) {
+        sendingLogin = false
+        loginSubmit.text = "Iniciar sesión"
+        var err = ""
+        try {
+            val o = org.json.JSONObject(json)
+            err = o.optString("error", "")
+        } catch (_: Exception) { }
+        // Veredicto REAL: la cookie de sesión bbuserid tras el POST (el HTML de FC
+        // no distingue invitado de logueado — esqueleto idéntico).
+        val ok = isLoggedIn()
+        if (!ok) {
+            loginError.text = when {
+                err == "cloudflare" -> "ForoCoches está pidiendo verificación. Inténtalo de nuevo en un momento."
+                err.isNotEmpty() -> err
+                else -> "Usuario o contraseña incorrectos"
+            }
+            loginError.visibility = View.VISIBLE
+            return
+        }
+        // Dentro. Persistimos cookies ya y refrescamos todo con la sesión nueva.
+        CookieManager.getInstance().flush()
+        bottomNav.menu.findItem(R.id.nav_profile)?.title = "Perfil"
+        loginPass.setText("")
+        isLoginVisible = false
+        loginPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
+        toast("Sesión iniciada")
+        listLoaded = false
+        loadingPage = false
+        val backToThread = pendingThreadUrl
+        val backToTitle = pendingThreadTitle
+        pendingThreadUrl = ""
+        pendingThreadTitle = ""
+        if (backToThread.isNotEmpty()) {
+            // Venía de un hilo que exigía cuenta (+HD): lo reabrimos ya logueado.
+            openThreadNative(backToThread, backToTitle)
+        } else if (isThreadVisible && currentThreadUrl.isNotEmpty()) {
+            showThread()
+        } else {
+            showNative()
+            bottomNav.selectedItemId = R.id.nav_home
+        }
+        requestThreadList(1)   // refresca lista + menuLinks + badges con la sesión
+    }
+
+    private fun toast(m: String) =
+        android.widget.Toast.makeText(this, m, android.widget.Toast.LENGTH_SHORT).show()
 
     private fun threadPageUrl(page: Int): String =
         if (page > 1) "$currentThreadUrl&page=$page" else currentThreadUrl
 
     private fun openThreadNative(url: String, title: String) {
         currentThreadUrl = url.substringBefore("&page=")
+        currentThreadTid = Regex("[?&]t=(\\d+)").find(url)?.groupValues?.get(1) ?: ""
         threadPage = 1
         threadPageCount = 1
         postAdapter.clear()
+        // Respuesta limpia por hilo: sin borrador ni citas heredadas.
+        replyInput.setText("")
+        replyQuotes.clear()
+        if (isReplyVisible) hideReply()
+        restrictedView.visibility = View.GONE
         threadTitle.text = title
         threadPageInfo.text = ""
         showThread()
@@ -317,6 +686,7 @@ class MainActivity : AppCompatActivity() {
     private fun onThreadJson(json: String) {
         loadingThreadPage = false
         threadLoading.visibility = View.GONE
+        restrictedView.visibility = View.GONE
         val t = parseThreadPayload(json) ?: return
         // Respuesta tardía de otro hilo (el user ya abrió otro): descartar.
         if (!t.url.startsWith(currentThreadUrl)) return
@@ -324,7 +694,9 @@ class MainActivity : AppCompatActivity() {
         if (t.title.isNotEmpty()) threadTitle.text = t.title
         threadPage = t.page
         threadPageCount = t.pageCount
-        threadPageInfo.text = if (t.pageCount > 1) "Página ${t.page} de ${t.pageCount}" else ""
+        // El indicador refleja la página VISIBLE: al cargar la 1 es la 1; en appends de
+        // scroll no se pisa (lo actualiza el listener de scroll con lo que se ve).
+        if (t.page <= 1) showThreadPageInfo(1)
 
         // Filtro de ignorados, mismas reglas que content.js: autor ignorado, post
         // colapsado por FC ("oculto porque") o post que cita a un ignorado.
@@ -342,19 +714,37 @@ class MainActivity : AppCompatActivity() {
     private fun onThreadError(reason: String) {
         loadingThreadPage = false
         threadLoading.visibility = View.GONE
-        when (reason) {
-            "cloudflare" -> {
+        when {
+            reason == "cloudflare" -> {
+                // Único caso donde asoma el WebView: el challenge solo lo resuelve
+                // un navegador visible. Al pasarlo, atrás vuelve al hilo nativo.
                 cameFromThread = true
                 showWeb()
                 webView.loadUrl(threadPageUrl(threadPage))
             }
+            reason == "login" -> {
+                // Página que pide identificarse: NUESTRO login, nunca el foro.
+                // Al entrar se reabre este hilo automáticamente.
+                pendingThreadUrl = currentThreadUrl
+                pendingThreadTitle = threadTitle.text.toString()
+                showLogin()
+            }
+            reason.startsWith("restricted") -> {
+                // FC redirigió a su página informativa (+HD). Reproducimos SU info
+                // con nuestros estilos, dentro del panel de hilo nativo.
+                var msg = ""; var meta = ""; var invite = ""
+                try {
+                    val o = org.json.JSONObject(reason.substringAfter("restricted:", "{}"))
+                    msg = o.optString("msg"); meta = o.optString("meta"); invite = o.optString("invite")
+                } catch (_: Exception) { }
+                showRestricted(msg, meta, invite)
+            }
             else -> {
                 android.util.Log.w("FC_SHELL", "thread error: $reason")
-                // Sin posts que enseñar: mejor la web que una pantalla vacía.
-                if (postAdapter.itemCount == 0 && currentThreadUrl.isNotEmpty()) {
-                    cameFromThread = false
-                    showWeb()
-                    webView.loadUrl(threadPageUrl(1))
+                // El foro de debajo NO se enseña: error nativo y de vuelta a la lista.
+                if (postAdapter.itemCount == 0) {
+                    toast("No se pudo cargar el hilo")
+                    showNative()
                 }
             }
         }
@@ -392,9 +782,14 @@ class MainActivity : AppCompatActivity() {
     private fun showNative() {
         isWebVisible = false
         isThreadVisible = false
+        isReplyVisible = false
+        isLoginVisible = false
         cameFromThread = false
         nativePanel.visibility = View.VISIBLE
         threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
         // invisible (no gone): el WebView sigue vivo debajo como motor de datos.
         swipeRefresh.visibility = View.INVISIBLE
     }
@@ -402,16 +797,26 @@ class MainActivity : AppCompatActivity() {
     private fun showThread() {
         isWebVisible = false
         isThreadVisible = true
+        isReplyVisible = false
+        isLoginVisible = false
         threadPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
         swipeRefresh.visibility = View.INVISIBLE
     }
 
     private fun showWeb() {
         isWebVisible = true
+        isReplyVisible = false
+        isLoginVisible = false
         swipeRefresh.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
     }
 
     /** El WebView terminó una página. Si es de FC, el extractor ya está inyectado. */
@@ -446,6 +851,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (parsed.menu.pm != null || parsed.menu.profile != null) menuLinks = parsed.menu
+        updateAccountNavItem()
         updateBadges(parsed.pmCount, parsed.quotesCount, parsed.mentionsCount)
 
         // Filtrado nativo: ignorados y keywords (mismos datos que usa content.js).
@@ -592,6 +998,14 @@ class MainActivity : AppCompatActivity() {
                     bottomNav.selectedItemId = R.id.nav_home
                 }
             }
+            return
+        }
+        if (isLoginVisible) {
+            hideLogin()
+            return
+        }
+        if (isReplyVisible) {
+            hideReply()
             return
         }
         if (isThreadVisible) {

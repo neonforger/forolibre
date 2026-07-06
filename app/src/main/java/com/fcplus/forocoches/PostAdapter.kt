@@ -36,7 +36,8 @@ data class PostItem(
     val author: String,
     val avatar: String,
     val date: String,
-    val html: String
+    val html: String,
+    val page: Int = 1
 )
 
 data class ThreadPayload(
@@ -54,6 +55,7 @@ data class ThreadPayload(
 fun parseThreadPayload(json: String): ThreadPayload? {
     return try {
         val root = JSONObject(json)
+        val pageNum = root.optInt("page", 1)
         val arr = root.getJSONArray("posts")
         val posts = ArrayList<PostItem>(arr.length())
         for (i in 0 until arr.length()) {
@@ -66,7 +68,8 @@ fun parseThreadPayload(json: String): ThreadPayload? {
                     author = o.optString("author").trim(),
                     avatar = o.optString("avatar").trim(),
                     date = o.optString("date").trim(),
-                    html = o.optString("html")
+                    html = o.optString("html"),
+                    page = pageNum
                 )
             )
         }
@@ -137,11 +140,22 @@ object PostImages {
 }
 
 class PostAdapter(
-    private val onLinkClick: (String) -> Unit
+    private val onLinkClick: (String) -> Unit,
+    private val onQuote: (PostItem) -> Unit = {},
+    private val onMultiquoteToggle: (PostItem) -> Unit = {},
+    // Única fuente de verdad de la selección: la mantiene MainActivity (replyQuotes).
+    private val isSelected: (String) -> Boolean = { false }
 ) : RecyclerView.Adapter<PostAdapter.Holder>() {
 
     private val items = ArrayList<PostItem>()
     private val seenPids = HashSet<String>()
+
+    /** Texto plano de un post para citar: sin HTML y sin citas anidadas previas. */
+    fun quoteBodyOf(item: PostItem): String {
+        val noQuotes = item.html.replace(Regex("(?is)<blockquote.*?</blockquote>"), " ")
+        val text = HtmlCompat.fromHtml(noQuotes, HtmlCompat.FROM_HTML_MODE_LEGACY).toString()
+        return text.replace(Regex("\\n{3,}"), "\n\n").trim()
+    }
 
     fun submit(list: List<PostItem>) {
         items.clear()
@@ -158,6 +172,9 @@ class PostAdapter(
 
     fun clear() = submit(emptyList())
 
+    /** Página del post en la posición dada (para el indicador de página al hacer scroll). */
+    fun pageAt(pos: Int): Int = items.getOrNull(pos)?.page ?: 1
+
     override fun getItemCount() = items.size
 
     class Holder(v: View) : RecyclerView.ViewHolder(v) {
@@ -165,6 +182,8 @@ class PostAdapter(
         val author: TextView = v.findViewById(R.id.post_author)
         val date: TextView = v.findViewById(R.id.post_date)
         val content: TextView = v.findViewById(R.id.post_content)
+        val quote: TextView = v.findViewById(R.id.post_quote)
+        val multiquote: TextView = v.findViewById(R.id.post_multiquote)
         var boundPid: String = ""
     }
 
@@ -181,6 +200,17 @@ class PostAdapter(
         h.date.text = item.date
         bindAvatar(h, item)
         renderContent(h, item)
+        h.quote.setOnClickListener { onQuote(item) }
+        paintMultiquote(h, isSelected(item.pid))
+        h.multiquote.setOnClickListener { onMultiquoteToggle(item) }
+    }
+
+    /** Repinta los marcadores de "+"/"✓" tras cambiar la selección desde fuera. */
+    fun refreshSelection() = notifyDataSetChanged()
+
+    private fun paintMultiquote(h: Holder, active: Boolean) {
+        h.multiquote.text = if (active) "✓" else "＋"
+        h.multiquote.setTextColor(if (active) 0xFFC8102E.toInt() else 0xFF9E9E9E.toInt())
     }
 
     private fun bindAvatar(h: Holder, item: PostItem) {
