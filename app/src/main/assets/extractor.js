@@ -157,6 +157,99 @@
       .catch(function (e) { /* sin lista de foros la app sigue con General */ });
   };
 
+  // ── Vista de hilo nativa (Fase 2) ──────────────────────────────────────────
+  // Parsea los posts de un showthread traído por fetch same-origin. El HTML del
+  // mensaje se SIMPLIFICA para el render nativo: citas → blockquote, embeds →
+  // enlace tocable (degradación elegante), URLs relativas → absolutas.
+  window.fcLoadThread = function (url) {
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onThreadError('cloudflare');
+          return;
+        }
+        var tid = (url.match(/[?&]t=(\d+)/) || [])[1] || '';
+        var posts = [];
+        doc.querySelectorAll('li.postbit').forEach(function (bit) {
+          var wrap = bit.closest('div.postbit_wrapper') || bit;
+          var pmEl = wrap.querySelector('[id^="postmenu_"]');
+          var pid = pmEl ? pmEl.id.replace('postmenu_', '') : '';
+          var auEl = pmEl ? pmEl.querySelector('a[href*="member.php"]') : null;
+          var author = auEl ? auEl.textContent.trim() : '';
+          var msg = wrap.querySelector('[id^="post_message_"]');
+          if (!msg || !pid) return;
+
+          // Cabecera (todo menos el mensaje): fecha y avatar sin contaminarse de citas.
+          var header = wrap.cloneNode(true);
+          var hm = header.querySelector('[id^="post_message_"]');
+          if (hm) hm.remove();
+          var dm = (header.textContent || '').replace(/\s+/g, ' ')
+            .match(/(Hoy|Ayer|\d{1,2}-[a-z]{3,4}-\d{2,4})[, ]*\d{1,2}:\d{2}/i);
+          var date = dm ? dm[0] : '';
+          var avatar = '';
+          var av = header.querySelector('img[src*="avatar"], img[src*="image.php"]');
+          if (av) {
+            try { avatar = new URL(av.getAttribute('src'), 'https://forocoches.com/foro/').href; }
+            catch (e) {}
+          }
+
+          // Mensaje simplificado para render nativo.
+          var m = msg.cloneNode(true);
+          m.querySelectorAll('script,style').forEach(function (x) { x.remove(); });
+          m.querySelectorAll('div.quote').forEach(function (q) {
+            var bq = doc.createElement('blockquote');
+            var qb = q.querySelector('b');
+            var who = qb ? qb.textContent.trim() : '';
+            bq.innerHTML = (who ? '<b>' + who + ' dijo:</b><br>' : '') + q.innerHTML;
+            q.replaceWith(bq);
+          });
+          m.querySelectorAll('iframe,video,embed,object').forEach(function (f) {
+            var src = f.src || f.getAttribute('src') || '';
+            var a = doc.createElement('a');
+            a.setAttribute('href', src || url);
+            var host = 'embebido';
+            try { if (src) host = new URL(src, 'https://forocoches.com').host; } catch (e) {}
+            a.textContent = '▶ Ver contenido (' + host + ')';
+            f.replaceWith(a);
+          });
+          m.querySelectorAll('a[href]').forEach(function (a) {
+            try { a.setAttribute('href', new URL(a.getAttribute('href'), 'https://forocoches.com/foro/').href); } catch (e) {}
+          });
+          m.querySelectorAll('img[src]').forEach(function (i) {
+            try { i.setAttribute('src', new URL(i.getAttribute('src'), 'https://forocoches.com/foro/').href); } catch (e) {}
+          });
+
+          posts.push({ pid: pid, author: author, avatar: avatar, date: date, html: m.innerHTML });
+        });
+        if (!posts.length) {
+          AndroidShell.onThreadError('empty');
+          return;
+        }
+        // Nº de páginas: el mayor page= de los enlaces del hilo (si no hay, 1).
+        var pageCount = 1;
+        doc.querySelectorAll('a[href*="showthread.php"][href*="page="]').forEach(function (a) {
+          var h = a.getAttribute('href') || '';
+          if (tid && h.indexOf('t=' + tid) === -1) return;
+          var pm2 = h.match(/[?&]page=(\d+)/);
+          if (pm2) pageCount = Math.max(pageCount, parseInt(pm2[1], 10));
+        });
+        var page = (url.match(/[?&]page=(\d+)/) || [])[1];
+        page = page ? parseInt(page, 10) : 1;
+        pageCount = Math.max(pageCount, page);
+        var title = (doc.title || '').replace(/\s*-\s*Forocoches.*$/i, '').trim();
+        AndroidShell.onThread(JSON.stringify({
+          url: url, tid: tid, title: title, page: page, pageCount: pageCount,
+          counts: menuCounts(doc), posts: posts
+        }));
+      })
+      .catch(function (e) { AndroidShell.onThreadError(String(e)); });
+  };
+
   // API pública para la app: carga un listado por fetch same-origin y lo entrega parseado.
   window.fcLoadThreadList = function (url) {
     fetch(url, { credentials: 'same-origin' })

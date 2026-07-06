@@ -44,6 +44,21 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var forumTabs: TabLayout
 
+    // ── Panel de hilo nativo (Fase 2) ──
+    private lateinit var threadPanel: View
+    private lateinit var postList: RecyclerView
+    private lateinit var threadLoading: ProgressBar
+    private lateinit var threadTitle: TextView
+    private lateinit var threadPageInfo: TextView
+    private lateinit var postAdapter: PostAdapter
+
+    private var currentThreadUrl = ""      // URL base del hilo abierto (sin &page=)
+    private var threadPage = 1
+    private var threadPageCount = 1
+    private var loadingThreadPage = false
+    private var isThreadVisible = false
+    private var cameFromThread = false     // para que atrás desde la web vuelva al hilo
+
     private var menuLinks: MenuLinks? = null
     private var isWebVisible = false
     private var engineReady = false      // el WebView ya cargó una página de FC con extractor
@@ -84,6 +99,11 @@ class MainActivity : AppCompatActivity() {
         listEmpty = findViewById(R.id.list_empty)
         bottomNav = findViewById(R.id.bottom_nav)
         forumTabs = findViewById(R.id.forum_tabs)
+        threadPanel = findViewById(R.id.thread_panel)
+        postList = findViewById(R.id.post_list)
+        threadLoading = findViewById(R.id.thread_loading)
+        threadTitle = findViewById(R.id.thread_title)
+        threadPageInfo = findViewById(R.id.thread_page_info)
         currentForumId = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_LAST_FID, 2)
 
         applyWindowInsets()
@@ -159,7 +179,9 @@ class MainActivity : AppCompatActivity() {
             ShellBridge(
                 onList = { json -> runOnUiThread { onThreadListJson(json) } },
                 onError = { reason -> runOnUiThread { onThreadListError(reason) } },
-                onForums = { json -> runOnUiThread { onForumListJson(json) } }
+                onForums = { json -> runOnUiThread { onForumListJson(json) } },
+                onThreadData = { json -> runOnUiThread { onThreadJson(json) } },
+                onThreadDataError = { reason -> runOnUiThread { onThreadError(reason) } }
             ),
             "AndroidShell"
         )
@@ -174,10 +196,8 @@ class MainActivity : AppCompatActivity() {
     // ── Shell nativo ─────────────────────────────────────────────────────────
 
     private fun configureShell() {
-        adapter = ThreadListAdapter { item ->
-            showWeb()
-            webView.loadUrl(item.url)
-        }
+        adapter = ThreadListAdapter { item -> openThreadNative(item.url, item.title) }
+        configureThreadPanel()
         val layoutManager = LinearLayoutManager(this)
         threadList.layoutManager = layoutManager
         threadList.adapter = adapter
@@ -244,15 +264,146 @@ class MainActivity : AppCompatActivity() {
         populatingTabs = false
     }
 
+    // ── Hilo nativo (Fase 2) ─────────────────────────────────────────────────
+
+    private fun configureThreadPanel() {
+        postAdapter = PostAdapter { url -> onPostLinkClick(url) }
+        val lm = LinearLayoutManager(this)
+        postList.layoutManager = lm
+        postList.adapter = postAdapter
+        // Página siguiente bajo demanda al acercarse al final (misma regla anti-crawler).
+        postList.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (dy <= 0 || loadingThreadPage) return
+                if (threadPage >= threadPageCount) return
+                val last = lm.findLastVisibleItemPosition()
+                if (postAdapter.itemCount > 0 && last >= postAdapter.itemCount - 5) {
+                    requestThreadPage(threadPage + 1)
+                }
+            }
+        })
+        findViewById<View>(R.id.thread_open_web).setOnClickListener {
+            if (currentThreadUrl.isNotEmpty()) {
+                cameFromThread = true
+                showWeb()
+                webView.loadUrl(threadPageUrl(threadPage))
+            }
+        }
+    }
+
+    private fun threadPageUrl(page: Int): String =
+        if (page > 1) "$currentThreadUrl&page=$page" else currentThreadUrl
+
+    private fun openThreadNative(url: String, title: String) {
+        currentThreadUrl = url.substringBefore("&page=")
+        threadPage = 1
+        threadPageCount = 1
+        postAdapter.clear()
+        threadTitle.text = title
+        threadPageInfo.text = ""
+        showThread()
+        requestThreadPage(1)
+    }
+
+    private fun requestThreadPage(page: Int) {
+        if (!engineReady || loadingThreadPage || currentThreadUrl.isEmpty()) return
+        loadingThreadPage = true
+        if (page <= 1) threadLoading.visibility = View.VISIBLE
+        webView.evaluateJavascript(
+            "window.fcLoadThread&&fcLoadThread('${threadPageUrl(page)}')", null
+        )
+    }
+
+    private fun onThreadJson(json: String) {
+        loadingThreadPage = false
+        threadLoading.visibility = View.GONE
+        val t = parseThreadPayload(json) ?: return
+        // Respuesta tardía de otro hilo (el user ya abrió otro): descartar.
+        if (!t.url.startsWith(currentThreadUrl)) return
+        updateBadges(t.pmCount, t.quotesCount, t.mentionsCount)
+        if (t.title.isNotEmpty()) threadTitle.text = t.title
+        threadPage = t.page
+        threadPageCount = t.pageCount
+        threadPageInfo.text = if (t.pageCount > 1) "Página ${t.page} de ${t.pageCount}" else ""
+
+        // Filtro de ignorados, mismas reglas que content.js: autor ignorado, post
+        // colapsado por FC ("oculto porque") o post que cita a un ignorado.
+        val ignored = repo.getIgnoredUsers().map { it.lowercase() }
+        val visible = t.posts.filter { p ->
+            if (p.author.isNotEmpty() && ignored.contains(p.author.lowercase())) return@filter false
+            val body = p.html.lowercase()
+            if (body.contains("oculto porque")) return@filter false
+            if (ignored.any { body.contains("<b>$it dijo:</b>") }) return@filter false
+            true
+        }
+        if (t.page <= 1) postAdapter.submit(visible) else postAdapter.append(visible)
+    }
+
+    private fun onThreadError(reason: String) {
+        loadingThreadPage = false
+        threadLoading.visibility = View.GONE
+        when (reason) {
+            "cloudflare" -> {
+                cameFromThread = true
+                showWeb()
+                webView.loadUrl(threadPageUrl(threadPage))
+            }
+            else -> {
+                android.util.Log.w("FC_SHELL", "thread error: $reason")
+                // Sin posts que enseñar: mejor la web que una pantalla vacía.
+                if (postAdapter.itemCount == 0 && currentThreadUrl.isNotEmpty()) {
+                    cameFromThread = false
+                    showWeb()
+                    webView.loadUrl(threadPageUrl(1))
+                }
+            }
+        }
+    }
+
+    /** Links dentro de posts: hilos de FC → nativo; resto de FC → capa web; fuera → navegador. */
+    private fun onPostLinkClick(url: String) {
+        when {
+            url.contains("showthread.php") && TrustedOrigins.isTrustedForocochesUrl(url) ->
+                openThreadNative(url.substringBefore("&page="), "")
+            TrustedOrigins.isTrustedForocochesUrl(url) -> {
+                cameFromThread = true
+                showWeb()
+                webView.loadUrl(url)
+            }
+            else -> {
+                try {
+                    startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                            .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                    )
+                } catch (_: Exception) { }
+            }
+        }
+    }
+
+    // ── Capas ────────────────────────────────────────────────────────────────
+
     private fun openWeb(url: String?) {
+        cameFromThread = false
         showWeb()
         webView.loadUrl(url ?: TrustedOrigins.DEFAULT_URL)
     }
 
     private fun showNative() {
         isWebVisible = false
+        isThreadVisible = false
+        cameFromThread = false
         nativePanel.visibility = View.VISIBLE
+        threadPanel.visibility = View.GONE
         // invisible (no gone): el WebView sigue vivo debajo como motor de datos.
+        swipeRefresh.visibility = View.INVISIBLE
+    }
+
+    private fun showThread() {
+        isWebVisible = false
+        isThreadVisible = true
+        threadPanel.visibility = View.VISIBLE
+        nativePanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
     }
 
@@ -260,6 +411,7 @@ class MainActivity : AppCompatActivity() {
         isWebVisible = true
         swipeRefresh.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
+        threadPanel.visibility = View.GONE
     }
 
     /** El WebView terminó una página. Si es de FC, el extractor ya está inyectado. */
@@ -433,12 +585,17 @@ class MainActivity : AppCompatActivity() {
         if (isWebVisible) {
             when {
                 webView.canGoBack() -> webView.goBack()
+                cameFromThread -> showThread()   // la web se abrió desde un hilo nativo
                 else -> {
                     // De la web se vuelve a la lista nativa, no se sale de la app.
                     showNative()
                     bottomNav.selectedItemId = R.id.nav_home
                 }
             }
+            return
+        }
+        if (isThreadVisible) {
+            showNative()
             return
         }
         super.onBackPressed()
