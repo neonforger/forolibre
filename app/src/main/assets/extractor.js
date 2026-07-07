@@ -197,6 +197,12 @@
           return;
         }
         var tid = (url.match(/[?&]t=(\d+)/) || [])[1] || '';
+        // URLs por post (showthread.php?p=N, típicas de citas/menciones): el t= no va
+        // en la URL; se saca del form de quick-reply de la propia página.
+        if (!tid) {
+          var tIn = doc.querySelector('input[name="t"]');
+          if (tIn && /^\d+$/.test(tIn.value || '')) tid = tIn.value;
+        }
         var posts = [];
         doc.querySelectorAll('li.postbit').forEach(function (bit) {
           var wrap = bit.closest('div.postbit_wrapper') || bit;
@@ -269,6 +275,16 @@
         });
         var page = (url.match(/[?&]page=(\d+)/) || [])[1];
         page = page ? parseInt(page, 10) : 1;
+        // URLs por post (p=): la página real no va en la URL; se deduce de los
+        // <link rel="next/prev"> que emite vBulletin en el <head>.
+        if (!/[?&]page=/.test(url)) {
+          var lnN = doc.querySelector('link[rel="next"]');
+          var lnP = doc.querySelector('link[rel="prev"]');
+          var nN = lnN ? ((lnN.getAttribute('href') || '').match(/[?&]page=(\d+)/) || [])[1] : null;
+          var nP = lnP ? ((lnP.getAttribute('href') || '').match(/[?&]page=(\d+)/) || [])[1] : null;
+          if (nN) page = Math.max(page, parseInt(nN, 10) - 1);
+          else if (nP) page = Math.max(page, parseInt(nP, 10) + 1);
+        }
         pageCount = Math.max(pageCount, page);
         var title = (doc.title || '').replace(/\s*-\s*Forocoches.*$/i, '').trim();
         AndroidShell.onThread(JSON.stringify({
@@ -395,6 +411,74 @@
       .catch(function (e) { AndroidShell.onLoginResult(JSON.stringify({ posted: false, error: String(e) })); });
   };
 
+  // ── Citas / Menciones aisladas (Bloque B) ──────────────────────────────────
+  // Viven en member.php?u=N&tab=quotes|mentions dentro de div.quotes-mentions-wrapper
+  // .quotes / .mentions como tabla tborder ("Sin resultados" si no hay).
+  window.fcLoadNotices = function (url, kind) {
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onNotices(JSON.stringify({ kind: kind, error: 'cloudflare' }));
+          return;
+        }
+        var cls = kind === 'quotes' ? 'quotes' : 'mentions';
+        var wrap = doc.querySelector('.quotes-mentions-wrapper.' + cls);
+        var items = [];
+        if (wrap) {
+          wrap.querySelectorAll('tr').forEach(function (tr) {
+            var a = tr.querySelector('a[href*="showthread.php"]');
+            if (!a) return; // fila "Sin resultados" u otras
+            var href = '';
+            try { href = new URL(a.getAttribute('href'), 'https://forocoches.com/foro/').href; } catch (e) { return; }
+            var title = a.textContent.replace(/\s+/g, ' ').trim();
+            var who = '';
+            var m = tr.querySelector('a[href*="member.php"]');
+            if (m) who = m.textContent.replace(/\s+/g, ' ').trim();
+            var text = tr.textContent.replace(/\s+/g, ' ').trim();
+            items.push({ url: href, title: title, who: who, text: text.slice(0, 200) });
+          });
+        }
+        AndroidShell.onNotices(JSON.stringify({ kind: kind, items: items }));
+      })
+      .catch(function (e) { AndroidShell.onNotices(JSON.stringify({ kind: kind, error: String(e) })); });
+  };
+
+  // ── Perfil + logout (Bloque B) ──────────────────────────────────────────────
+  window.fcLoadProfile = function (url) {
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var name = ((doc.title || '').match(/Ver Perfil:\s*(.+)$/i) || [])[1] || '';
+        var avatar = '';
+        var av = doc.querySelector('img[src*="avatar"], img[src*="image.php"]');
+        if (av) {
+          try { avatar = new URL(av.getAttribute('src'), 'https://forocoches.com/foro/').href; } catch (e) {}
+        }
+        // El link de logout (con su logouthash) viene en la propia página.
+        var lo = '';
+        var loA = doc.querySelector('a[href*="do=logout"]');
+        if (loA) {
+          try { lo = new URL(loA.getAttribute('href'), 'https://forocoches.com/foro/').href; } catch (e) {}
+        }
+        AndroidShell.onProfile(JSON.stringify({ name: name.trim(), avatar: avatar, logout: lo }));
+      })
+      .catch(function (e) { AndroidShell.onProfile(JSON.stringify({ error: String(e) })); });
+  };
+
+  /** Cierra la sesión llamando al link real de logout (con logouthash). */
+  window.fcLogout = function (logoutUrl) {
+    fetch(logoutUrl, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function () { AndroidShell.onLogoutDone('ok'); })
+      .catch(function (e) { AndroidShell.onLogoutDone(String(e)); });
+  };
+
   // ── Smilies de FC (Bloque A: editor) ───────────────────────────────────────
   // La página getsmilies trae <img id="smilie_N" alt=":codigo:" title="nombre">.
   window.fcLoadSmilies = function () {
@@ -416,13 +500,16 @@
   };
 
   // API pública para la app: carga un listado por fetch same-origin y lo entrega parseado.
+  // Sirve para forumdisplay, subscription y search (Mis hilos): la finalUrl tras
+  // redirecciones permite paginar búsquedas (search.php?searchid=N&page=M).
   window.fcLoadThreadList = function (url) {
     fetch(url, { credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) throw new Error('http ' + r.status);
-        return r.text();
+        return r.text().then(function (html) { return { html: html, finalUrl: r.url || url }; });
       })
-      .then(function (html) {
+      .then(function (res) {
+        var html = res.html;
         var doc = new DOMParser().parseFromString(html, 'text/html');
         // Challenge de Cloudflare: avisar a la app para que enseñe el WebView y lo resuelva
         // el usuario como en el navegador.
@@ -430,7 +517,7 @@
           AndroidShell.onListError('cloudflare');
           return;
         }
-        var payload = { url: url, menu: menuLinks(), counts: menuCounts(doc), threads: parseListDoc(doc) };
+        var payload = { url: url, finalUrl: res.finalUrl, menu: menuLinks(), counts: menuCounts(doc), threads: parseListDoc(doc) };
         if (!payload.threads.length) {
           AndroidShell.onListError('empty'); // canario: 0 hilos = probable cambio de HTML
           return;

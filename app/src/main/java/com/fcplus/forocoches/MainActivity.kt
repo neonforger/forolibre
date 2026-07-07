@@ -20,7 +20,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -39,7 +38,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var threadList: RecyclerView
     private lateinit var listLoading: ProgressBar
     private lateinit var listEmpty: TextView
-    private lateinit var bottomNav: BottomNavigationView
+    // Barra inferior PROPIA (6 destinos, scroll lateral): contenedor + mapas por ítem.
+    private lateinit var bottomNav: View
+    private var selectedNavId = R.id.nav_home
+    private val navIcons = HashMap<Int, android.widget.ImageView>()
+    private val navLabels = HashMap<Int, TextView>()
+    private val navBadges = HashMap<Int, TextView>()
+    private val navIds = intArrayOf(
+        R.id.nav_home, R.id.nav_favs, R.id.nav_mythreads,
+        R.id.nav_notif, R.id.nav_quotes, R.id.nav_profile
+    )
     private lateinit var adapter: ThreadListAdapter
 
     private lateinit var forumTabs: TabLayout
@@ -76,6 +84,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bbcode: BbcodeEditor
     private var smileyCache: List<Smiley>? = null
     private var smileyDialogPending = false
+
+    // ── Secciones nativas (Bloque B) ──
+    private lateinit var noticesPanel: View
+    private lateinit var noticesHeader: TextView
+    private lateinit var noticesList: RecyclerView
+    private lateinit var noticesLoading: ProgressBar
+    private lateinit var noticesEmpty: TextView
+    private lateinit var noticeAdapter: NoticeAdapter
+    private var isNoticesVisible = false
+    private var currentNoticesKind = ""
+
+    private lateinit var profilePanel: View
+    private lateinit var profileAvatar: android.widget.ImageView
+    private lateinit var profileName: TextView
+    private var isProfileVisible = false
+    private var profileLogoutUrl = ""
+
+    private lateinit var nativeHeader: TextView
+    private var listSource = "home"        // home | favs | mine (qué alimenta la lista nativa)
+    private var myThreadsBase = ""         // search.php?searchid=N para paginar Mis hilos
 
     // ── Panel de login nativo (Fase 3) ──
     private lateinit var loginPanel: View
@@ -115,8 +143,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildListUrl(page: Int): String {
-        val base = "https://forocoches.com/foro/forumdisplay.php?f=$currentForumId"
-        return if (page > 1) "$base&page=$page" else base
+        val base = when (listSource) {
+            "favs" -> "https://forocoches.com/foro/subscription.php"
+            "mine" -> {
+                // Página 1: búsqueda estándar de vBulletin "hilos iniciados por mí".
+                // Siguientes: la URL con searchid que devolvió la búsqueda (finalUrl).
+                if (page > 1 && myThreadsBase.isNotEmpty()) myThreadsBase
+                else {
+                    val uid = Regex("u=(\\d+)").find(menuLinks?.profile ?: "")?.groupValues?.get(1) ?: ""
+                    "https://forocoches.com/foro/search.php?do=finduser&u=$uid&starteronly=1"
+                }
+            }
+            else -> "https://forocoches.com/foro/forumdisplay.php?f=$currentForumId"
+        }
+        if (page <= 1) return base
+        return base + (if (base.contains('?')) "&" else "?") + "page=$page"
     }
 
     /**
@@ -132,7 +173,220 @@ class MainActivity : AppCompatActivity() {
 
     /** La pestaña de cuenta de la barra inferior: "Entrar" de invitado, "Perfil" con sesión. */
     private fun updateAccountNavItem() {
-        bottomNav.menu.findItem(R.id.nav_profile)?.title = if (isLoggedIn()) "Perfil" else "Entrar"
+        navLabels[R.id.nav_profile]?.text = if (isLoggedIn()) "Perfil" else "Entrar"
+    }
+
+    // ── Barra inferior propia ────────────────────────────────────────────────
+
+    private fun configureBottomBar() {
+        val icons = mapOf(
+            R.id.nav_home to R.drawable.ic_nav_home,
+            R.id.nav_favs to R.drawable.ic_nav_star,
+            R.id.nav_mythreads to R.drawable.ic_nav_threads,
+            R.id.nav_notif to R.drawable.ic_nav_bell,
+            R.id.nav_quotes to R.drawable.ic_nav_quote,
+            R.id.nav_profile to R.drawable.ic_nav_person
+        )
+        val labels = mapOf(
+            R.id.nav_home to "Inicio",
+            R.id.nav_favs to "Favoritos",
+            R.id.nav_mythreads to "Mis hilos",
+            R.id.nav_notif to "Menciones",
+            R.id.nav_quotes to "Citas",
+            R.id.nav_profile to "Perfil"
+        )
+        for (id in navIds) {
+            val item = findViewById<View>(id)
+            navIcons[id] = item.findViewById(R.id.nav_icon)
+            navLabels[id] = item.findViewById(R.id.nav_label)
+            navBadges[id] = item.findViewById(R.id.nav_badge)
+            navIcons[id]?.setImageResource(icons.getValue(id))
+            navLabels[id]?.text = labels.getValue(id)
+            item.setOnClickListener { onNavClicked(id) }
+        }
+        setSelectedNav(R.id.nav_home)
+    }
+
+    private fun onNavClicked(id: Int) {
+        val reselect = id == selectedNavId
+        when (id) {
+            R.id.nav_home -> { showHomeList(); if (reselect) requestThreadList(1) }
+            R.id.nav_favs -> if (isLoggedIn()) showFavsList() else showLogin()
+            R.id.nav_mythreads -> if (isLoggedIn()) showMyThreadsList() else showLogin()
+            R.id.nav_notif -> if (isLoggedIn()) showNotices("mentions") else showLogin()
+            R.id.nav_quotes -> if (isLoggedIn()) showNotices("quotes") else showLogin()
+            R.id.nav_profile -> if (isLoggedIn()) showProfile() else showLogin()
+        }
+    }
+
+    private fun setSelectedNav(id: Int) {
+        selectedNavId = id
+        val red = 0xFFC8102E.toInt()
+        val gray = 0xFF757575.toInt()
+        for (nid in navIds) {
+            val c = if (nid == id) red else gray
+            navIcons[nid]?.setColorFilter(c)
+            navLabels[nid]?.setTextColor(c)
+        }
+    }
+
+    /** Ítem de la barra que corresponde a la fuente actual de la lista nativa. */
+    private fun navIdForList(): Int = when (listSource) {
+        "favs" -> R.id.nav_favs
+        "mine" -> R.id.nav_mythreads
+        else -> R.id.nav_home
+    }
+
+    // ── Secciones nativas (Bloque B) ─────────────────────────────────────────
+
+    /** Inicio: la lista nativa vuelve al modo foro (pestañas de subforos visibles). */
+    private fun showHomeList() {
+        val wasOther = listSource != "home"
+        listSource = "home"
+        forumTabs.visibility = View.VISIBLE
+        nativeHeader.text = "ForoPlus"
+        showNative()
+        setSelectedNav(R.id.nav_home)
+        if (wasOther) {
+            listLoaded = false
+            adapter.submit(emptyList())
+        }
+        if (!listLoaded) requestThreadList(1)
+    }
+
+    /** Favoritos: la MISMA lista nativa, alimentada por subscription.php. */
+    private fun showFavsList() {
+        listSource = "favs"
+        forumTabs.visibility = View.GONE
+        nativeHeader.text = "Favoritos"
+        listLoaded = false
+        adapter.submit(emptyList())
+        showNative()
+        setSelectedNav(R.id.nav_favs)
+        requestThreadList(1)
+    }
+
+    /** Mis hilos: los iniciados por el usuario, vía la búsqueda estándar de vBulletin. */
+    private fun showMyThreadsList() {
+        if (menuLinks?.profile == null) { toast("Conectando con el foro…"); return }
+        listSource = "mine"
+        myThreadsBase = ""
+        forumTabs.visibility = View.GONE
+        nativeHeader.text = "Mis hilos"
+        listLoaded = false
+        adapter.submit(emptyList())
+        showNative()
+        setSelectedNav(R.id.nav_mythreads)
+        requestThreadList(1)
+    }
+
+    /** Citas o menciones AISLADAS en su propia página (no el batiburrillo de FC). */
+    private fun showNotices(kind: String) {
+        val url = if (kind == "quotes") menuLinks?.quotes else menuLinks?.mentions
+        if (url == null) { toast("Conectando con el foro…"); return }
+        currentNoticesKind = kind
+        isNoticesVisible = true
+        isWebVisible = false; isThreadVisible = false; isReplyVisible = false
+        isLoginVisible = false; isProfileVisible = false
+        noticesPanel.visibility = View.VISIBLE
+        nativePanel.visibility = View.GONE
+        threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
+        swipeRefresh.visibility = View.INVISIBLE
+        bottomNav.visibility = View.VISIBLE
+        setSelectedNav(if (kind == "quotes") R.id.nav_quotes else R.id.nav_notif)
+        noticesHeader.text = if (kind == "quotes") "Citas" else "Menciones"
+        noticeAdapter.submit(emptyList())
+        noticesEmpty.visibility = View.GONE
+        noticesLoading.visibility = View.VISIBLE
+        webView.evaluateJavascript(
+            "window.fcLoadNotices&&fcLoadNotices('${jsEscape(url)}','$kind')", null
+        )
+    }
+
+    private fun onNoticesJson(json: String) {
+        if (!isNoticesVisible) return
+        noticesLoading.visibility = View.GONE
+        val p = parseNoticesPayload(json) ?: return
+        if (p.kind != currentNoticesKind) return
+        if (p.error == "cloudflare") {
+            showWeb()
+            webView.loadUrl(if (currentNoticesKind == "quotes") menuLinks?.quotes ?: "" else menuLinks?.mentions ?: "")
+            return
+        }
+        noticeAdapter.submit(p.items)
+        if (p.items.isEmpty()) {
+            noticesEmpty.visibility = View.VISIBLE
+            noticesEmpty.text = if (currentNoticesKind == "quotes")
+                "No tienes citas recientes" else "No tienes menciones recientes"
+        }
+    }
+
+    /** Perfil nativo: nombre + avatar + cerrar sesión (el foro no se ve). */
+    private fun showProfile() {
+        isProfileVisible = true
+        isWebVisible = false; isThreadVisible = false; isReplyVisible = false
+        isLoginVisible = false; isNoticesVisible = false
+        profilePanel.visibility = View.VISIBLE
+        nativePanel.visibility = View.GONE
+        threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        swipeRefresh.visibility = View.INVISIBLE
+        bottomNav.visibility = View.VISIBLE
+        setSelectedNav(R.id.nav_profile)
+        val url = menuLinks?.profile
+        if (profileName.text.isNullOrEmpty()) profileName.text = "…"
+        if (url != null) {
+            webView.evaluateJavascript("window.fcLoadProfile&&fcLoadProfile('${jsEscape(url)}')", null)
+        }
+    }
+
+    private fun onProfileJson(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            val name = o.optString("name")
+            if (name.isNotEmpty()) profileName.text = name
+            profileLogoutUrl = o.optString("logout", profileLogoutUrl)
+            val av = o.optString("avatar")
+            if (av.isNotEmpty()) {
+                PostImages.get(av)?.let { profileAvatar.setImageBitmap(it) } ?: PostImages.load(av) {
+                    PostImages.get(av)?.let { profileAvatar.setImageBitmap(it) }
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun doLogout() {
+        if (profileLogoutUrl.isEmpty()) { toast("No se pudo cerrar sesión"); return }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Cerrar sesión")
+            .setMessage("¿Seguro que quieres salir de tu cuenta?")
+            .setPositiveButton("Salir") { _, _ ->
+                webView.evaluateJavascript("window.fcLogout&&fcLogout('${jsEscape(profileLogoutUrl)}')", null)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun onLogoutDone(result: String) {
+        CookieManager.getInstance().flush()
+        if (isLoggedIn()) {
+            toast("No se pudo cerrar sesión")
+            return
+        }
+        toast("Sesión cerrada")
+        profileLogoutUrl = ""
+        profileName.text = ""
+        menuLinks = null
+        updateAccountNavItem()
+        updateBadges(0, 0, 0)
+        listLoaded = false
+        adapter.submit(emptyList())
+        showHomeList()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -153,6 +407,15 @@ class MainActivity : AppCompatActivity() {
         threadLoading = findViewById(R.id.thread_loading)
         threadTitle = findViewById(R.id.thread_title)
         threadPageInfo = findViewById(R.id.thread_page_info)
+        nativeHeader = findViewById(R.id.native_header)
+        noticesPanel = findViewById(R.id.notices_panel)
+        noticesHeader = findViewById(R.id.notices_header)
+        noticesList = findViewById(R.id.notices_list)
+        noticesLoading = findViewById(R.id.notices_loading)
+        noticesEmpty = findViewById(R.id.notices_empty)
+        profilePanel = findViewById(R.id.profile_panel)
+        profileAvatar = findViewById(R.id.profile_avatar)
+        profileName = findViewById(R.id.profile_name)
         currentForumId = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_LAST_FID, 2)
 
         applyWindowInsets()
@@ -235,7 +498,10 @@ class MainActivity : AppCompatActivity() {
                 onThreadDataError = { reason -> runOnUiThread { onThreadError(reason) } },
                 onReply = { json -> runOnUiThread { onReplyResult(json) } },
                 onLogin = { json -> runOnUiThread { onLoginResult(json) } },
-                onSmiliesData = { json -> runOnUiThread { onSmiliesJson(json) } }
+                onSmiliesData = { json -> runOnUiThread { onSmiliesJson(json) } },
+                onNoticesData = { json -> runOnUiThread { onNoticesJson(json) } },
+                onProfileData = { json -> runOnUiThread { onProfileJson(json) } },
+                onLogout = { result -> runOnUiThread { onLogoutDone(result) } }
             ),
             "AndroidShell"
         )
@@ -252,6 +518,21 @@ class MainActivity : AppCompatActivity() {
     private fun configureShell() {
         adapter = ThreadListAdapter { item -> openThreadNative(item.url, item.title) }
         configureThreadPanel()
+
+        // Secciones nativas (Bloque B): citas/menciones y perfil.
+        noticeAdapter = NoticeAdapter { n -> openThreadNative(n.url.substringBefore("#"), n.title) }
+        noticesList.layoutManager = LinearLayoutManager(this)
+        noticesList.adapter = noticeAdapter
+        findViewById<View>(R.id.profile_logout).setOnClickListener { doLogout() }
+        findViewById<View>(R.id.profile_open_web).setOnClickListener {
+            val u = menuLinks?.profile ?: return@setOnClickListener
+            try {
+                startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))
+                        .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                )
+            } catch (_: Exception) { }
+        }
         val layoutManager = LinearLayoutManager(this)
         threadList.layoutManager = layoutManager
         threadList.adapter = adapter
@@ -270,21 +551,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        configureBottomBar()
         updateAccountNavItem()
-        bottomNav.setOnItemSelectedListener { item ->
-            when (item.itemId) {
-                R.id.nav_home -> { showNative(); if (!listLoaded) requestThreadList(1); true }
-                R.id.nav_favs -> { openWeb(menuLinks?.favs ?: "https://forocoches.com/foro/subscription.php"); true }
-                // Sin sesión estas secciones no existen: enseñamos NUESTRO login nativo.
-                R.id.nav_notif -> { if (isLoggedIn()) openWeb(menuLinks?.mentions) else showLogin(); true }
-                R.id.nav_quotes -> { if (isLoggedIn()) openWeb(menuLinks?.quotes) else showLogin(); true }
-                R.id.nav_profile -> { if (isLoggedIn()) openWeb(menuLinks?.profile) else showLogin(); true }
-                else -> false
-            }
-        }
-        bottomNav.setOnItemReselectedListener { item ->
-            if (item.itemId == R.id.nav_home) { showNative(); requestThreadList(1) }
-        }
 
         forumTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
@@ -597,10 +865,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLogin() {
         isLoginVisible = true
+        isNoticesVisible = false
+        isProfileVisible = false
         loginPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
         bottomNav.visibility = View.GONE   // pantalla de escritura: teclado a pantalla limpia
         loginError.visibility = View.GONE
         loginUser.requestFocus()
@@ -620,7 +892,7 @@ class MainActivity : AppCompatActivity() {
             showThread()
         } else {
             showNative()
-            bottomNav.selectedItemId = R.id.nav_home
+            setSelectedNav(navIdForList())
         }
     }
 
@@ -668,7 +940,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Dentro. Persistimos cookies ya y refrescamos todo con la sesión nueva.
         CookieManager.getInstance().flush()
-        bottomNav.menu.findItem(R.id.nav_profile)?.title = "Perfil"
+        updateAccountNavItem()
         loginPass.setText("")
         isLoginVisible = false
         loginPanel.visibility = View.GONE
@@ -687,7 +959,7 @@ class MainActivity : AppCompatActivity() {
             showThread()
         } else {
             showNative()
-            bottomNav.selectedItemId = R.id.nav_home
+            setSelectedNav(navIdForList())
         }
         requestThreadList(1)   // refresca lista + menuLinks + badges con la sesión
     }
@@ -731,6 +1003,12 @@ class MainActivity : AppCompatActivity() {
         val t = parseThreadPayload(json) ?: return
         // Respuesta tardía de otro hilo (el user ya abrió otro): descartar.
         if (!t.url.startsWith(currentThreadUrl)) return
+        // Hilos abiertos por enlace p= (citas/menciones): canonicaliza a t= para que
+        // la paginación y responder funcionen con normalidad.
+        if (t.tid.isNotEmpty() && !currentThreadUrl.contains("t=")) {
+            currentThreadUrl = "https://forocoches.com/foro/showthread.php?t=${t.tid}"
+        }
+        if (currentThreadTid.isEmpty() && t.tid.isNotEmpty()) currentThreadTid = t.tid
         updateBadges(t.pmCount, t.quotesCount, t.mentionsCount)
         if (t.title.isNotEmpty()) threadTitle.text = t.title
         threadPage = t.page
@@ -825,11 +1103,15 @@ class MainActivity : AppCompatActivity() {
         isThreadVisible = false
         isReplyVisible = false
         isLoginVisible = false
+        isNoticesVisible = false
+        isProfileVisible = false
         cameFromThread = false
         nativePanel.visibility = View.VISIBLE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
         // invisible (no gone): el WebView sigue vivo debajo como motor de datos.
         swipeRefresh.visibility = View.INVISIBLE
@@ -840,10 +1122,14 @@ class MainActivity : AppCompatActivity() {
         isThreadVisible = true
         isReplyVisible = false
         isLoginVisible = false
+        isNoticesVisible = false
+        isProfileVisible = false
         threadPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
         swipeRefresh.visibility = View.INVISIBLE
     }
@@ -852,11 +1138,15 @@ class MainActivity : AppCompatActivity() {
         isWebVisible = true
         isReplyVisible = false
         isLoginVisible = false
+        isNoticesVisible = false
+        isProfileVisible = false
         swipeRefresh.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
     }
 
@@ -894,6 +1184,11 @@ class MainActivity : AppCompatActivity() {
         if (parsed.menu.pm != null || parsed.menu.profile != null) menuLinks = parsed.menu
         updateAccountNavItem()
         updateBadges(parsed.pmCount, parsed.quotesCount, parsed.mentionsCount)
+        // Mis hilos: la búsqueda redirige a search.php?searchid=N — se guarda como base
+        // de paginación (sin su posible page=).
+        if (listSource == "mine" && parsed.finalUrl.contains("searchid=")) {
+            myThreadsBase = parsed.finalUrl.replace(Regex("[&?]page=\\d+"), "")
+        }
 
         // Filtrado nativo: ignorados y keywords (mismos datos que usa content.js).
         val ignored = repo.getIgnoredUsers().map { it.lowercase() }.toHashSet()
@@ -918,13 +1213,13 @@ class MainActivity : AppCompatActivity() {
      *  Los contadores vienen gratis en el HTML de cada listado (cero peticiones extra). */
     private fun updateBadges(pm: Int, quotes: Int, mentions: Int) {
         fun set(id: Int, n: Int) {
-            if (n > 0) {
-                bottomNav.getOrCreateBadge(id).apply {
-                    number = n
-                    backgroundColor = android.graphics.Color.parseColor("#C8102E")
+            navBadges[id]?.apply {
+                if (n > 0) {
+                    visibility = View.VISIBLE
+                    text = if (n > 99) "99+" else n.toString()
+                } else {
+                    visibility = View.GONE
                 }
-            } else {
-                bottomNav.removeBadge(id)
             }
         }
         set(R.id.nav_notif, mentions)
@@ -1036,7 +1331,7 @@ class MainActivity : AppCompatActivity() {
                 else -> {
                     // De la web se vuelve a la lista nativa, no se sale de la app.
                     showNative()
-                    bottomNav.selectedItemId = R.id.nav_home
+                    setSelectedNav(navIdForList())
                 }
             }
             return
@@ -1047,6 +1342,11 @@ class MainActivity : AppCompatActivity() {
         }
         if (isReplyVisible) {
             hideReply()
+            return
+        }
+        if (isNoticesVisible || isProfileVisible) {
+            showNative()
+            setSelectedNav(navIdForList())
             return
         }
         if (isThreadVisible) {

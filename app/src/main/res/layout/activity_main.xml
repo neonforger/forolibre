@@ -412,6 +412,125 @@
             </HorizontalScrollView>
         </LinearLayout>
 
+        <!-- Capa CITAS/MENCIONES nativa (Bloque B): aisladas, no el batiburrillo de FC. -->
+        <LinearLayout
+            android:id="@+id/notices_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/notices_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="10dp"
+                android:textColor="#C8102E"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:elevation="2dp"
+                android:background="#FFFFFF" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/notices_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false" />
+
+                <ProgressBar
+                    android:id="@+id/notices_loading"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/notices_empty"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:padding="24dp"
+                    android:gravity="center"
+                    android:textColor="#757575"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <!-- Capa PERFIL nativa (Bloque B): datos básicos + cerrar sesión. -->
+        <LinearLayout
+            android:id="@+id/profile_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:background="#FFFFFF"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/profile_avatar"
+                android:layout_width="84dp"
+                android:layout_height="84dp"
+                android:layout_marginTop="56dp"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/profile_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:textColor="#1A1A1A" />
+
+            <TextView
+                android:id="@+id/profile_sub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Cuenta de ForoCoches"
+                android:textSize="13sp"
+                android:textColor="#9E9E9E" />
+
+            <TextView
+                android:id="@+id/profile_open_web"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="36dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:gravity="center"
+                android:text="Ver perfil completo (navegador)"
+                android:textSize="14sp"
+                android:textColor="#616161"
+                android:background="?attr/selectableItemBackground" />
+
+            <TextView
+                android:id="@+id/profile_logout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:paddingTop="13dp"
+                android:paddingBottom="13dp"
+                android:gravity="center"
+                android:text="Cerrar sesión"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:background="#C8102E" />
+        </LinearLayout>
+
         <!-- Capa LOGIN nativa (Fase 3): formulario propio. Las credenciales las envía
              fcLogin por el form real de FC (same-origin, cookies del WebView), pero el
              usuario nunca ve el foro por debajo. -->
@@ -539,14 +658,58 @@
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
     </FrameLayout>
 
-    <com.google.android.material.bottomnavigation.BottomNavigationView
+    <!-- Barra inferior propia: 6 destinos con scroll lateral (Material limita a 5). -->
+    <HorizontalScrollView
         android:id="@+id/bottom_nav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#FFFFFF"
-        app:itemIconTint="@color/bottom_nav_tint"
-        app:itemTextColor="@color/bottom_nav_tint"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/bottom_nav" />
+        android:elevation="8dp"
+        android:scrollbars="none"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <include
+                android:id="@+id/nav_home"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/nav_favs"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/nav_mythreads"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/nav_notif"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/nav_quotes"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/nav_profile"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+    </HorizontalScrollView>
 
 </LinearLayout>

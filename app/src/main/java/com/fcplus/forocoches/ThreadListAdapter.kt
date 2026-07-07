@@ -51,6 +51,7 @@ fun parseForumListPayload(json: String): List<ForumTab> {
 
 data class ShellPayload(
     val url: String,
+    val finalUrl: String,
     val menu: MenuLinks,
     val threads: List<ThreadItem>,
     val pmCount: Int = 0,
@@ -94,7 +95,7 @@ fun parseThreadListPayload(json: String): ShellPayload? {
         }
         val counts = root.optJSONObject("counts")
         ShellPayload(
-            root.optString("url"), menu, list,
+            root.optString("url"), root.optString("finalUrl"), menu, list,
             pmCount = counts?.optInt("pm") ?: 0,
             quotesCount = counts?.optInt("quotes") ?: 0,
             mentionsCount = counts?.optInt("mentions") ?: 0
