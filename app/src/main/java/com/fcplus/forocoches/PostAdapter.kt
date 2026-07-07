@@ -37,7 +37,8 @@ data class PostItem(
     val avatar: String,
     val date: String,
     val html: String,
-    val page: Int = 1
+    val page: Int = 1,
+    val own: Boolean = false
 )
 
 data class ThreadPayload(
@@ -69,7 +70,8 @@ fun parseThreadPayload(json: String): ThreadPayload? {
                     avatar = o.optString("avatar").trim(),
                     date = o.optString("date").trim(),
                     html = o.optString("html"),
-                    page = pageNum
+                    page = pageNum,
+                    own = o.optBoolean("own", false)
                 )
             )
         }
@@ -144,7 +146,9 @@ class PostAdapter(
     private val onQuote: (PostItem) -> Unit = {},
     private val onMultiquoteToggle: (PostItem) -> Unit = {},
     // Única fuente de verdad de la selección: la mantiene MainActivity (replyQuotes).
-    private val isSelected: (String) -> Boolean = { false }
+    private val isSelected: (String) -> Boolean = { false },
+    // Menú ⋮ de un post propio (editar / borrar). El View es el ancla del popup.
+    private val onMenu: (PostItem, View) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<PostAdapter.Holder>() {
 
     private val items = ArrayList<PostItem>()
@@ -184,6 +188,7 @@ class PostAdapter(
         val content: TextView = v.findViewById(R.id.post_content)
         val quote: TextView = v.findViewById(R.id.post_quote)
         val multiquote: TextView = v.findViewById(R.id.post_multiquote)
+        val menu: TextView = v.findViewById(R.id.post_menu)
         var boundPid: String = ""
     }
 
@@ -203,6 +208,8 @@ class PostAdapter(
         h.quote.setOnClickListener { onQuote(item) }
         paintMultiquote(h, isSelected(item.pid))
         h.multiquote.setOnClickListener { onMultiquoteToggle(item) }
+        h.menu.visibility = if (item.own) View.VISIBLE else View.GONE
+        h.menu.setOnClickListener { onMenu(item, h.menu) }
     }
 
     /** Repinta los marcadores de "+"/"✓" tras cambiar la selección desde fuera. */

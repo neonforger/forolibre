@@ -74,8 +74,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var replySend: TextView
     private lateinit var replyCancel: TextView
     private lateinit var replyQuotesContainer: android.widget.LinearLayout
+    private lateinit var replyHeaderTitle: TextView
+    private lateinit var replySubject: android.widget.EditText
     private var isReplyVisible = false
     private var sendingReply = false
+    // Modo del panel de escritura: reply | edit | newthread. Editar/crear reusan el panel.
+    private var replyMode = "reply"
+    private var editingPid = ""
     // Citas de la respuesta en curso (única fuente de verdad, ordenadas). El "+" de cada
     // post y las tarjetas del panel leen de aquí.
     private val replyQuotes = LinkedHashMap<String, PostItem>()
@@ -102,6 +107,7 @@ class MainActivity : AppCompatActivity() {
     private var profileLogoutUrl = ""
 
     private lateinit var nativeHeader: TextView
+    private lateinit var fabNewThread: View
     private var listSource = "home"        // home | favs | mine (qué alimenta la lista nativa)
     private var myThreadsBase = ""         // search.php?searchid=N para paginar Mis hilos
 
@@ -246,6 +252,7 @@ class MainActivity : AppCompatActivity() {
         forumTabs.visibility = View.VISIBLE
         nativeHeader.text = "ForoPlus"
         showNative()
+        fabNewThread.visibility = if (isLoggedIn()) View.VISIBLE else View.GONE
         setSelectedNav(R.id.nav_home)
         if (wasOther) {
             listLoaded = false
@@ -262,6 +269,7 @@ class MainActivity : AppCompatActivity() {
         listLoaded = false
         adapter.submit(emptyList())
         showNative()
+        fabNewThread.visibility = View.GONE
         setSelectedNav(R.id.nav_favs)
         requestThreadList(1)
     }
@@ -276,6 +284,7 @@ class MainActivity : AppCompatActivity() {
         listLoaded = false
         adapter.submit(emptyList())
         showNative()
+        fabNewThread.visibility = View.GONE
         setSelectedNav(R.id.nav_mythreads)
         requestThreadList(1)
     }
@@ -501,7 +510,9 @@ class MainActivity : AppCompatActivity() {
                 onSmiliesData = { json -> runOnUiThread { onSmiliesJson(json) } },
                 onNoticesData = { json -> runOnUiThread { onNoticesJson(json) } },
                 onProfileData = { json -> runOnUiThread { onProfileJson(json) } },
-                onLogout = { result -> runOnUiThread { onLogoutDone(result) } }
+                onLogout = { result -> runOnUiThread { onLogoutDone(result) } },
+                onThreadActionData = { json -> runOnUiThread { onThreadActionResult(json) } },
+                onEditLoadData = { json -> runOnUiThread { onEditLoad(json) } }
             ),
             "AndroidShell"
         )
@@ -523,6 +534,12 @@ class MainActivity : AppCompatActivity() {
         noticeAdapter = NoticeAdapter { n -> openThreadNative(n.url.substringBefore("#"), n.title) }
         noticesList.layoutManager = LinearLayoutManager(this)
         noticesList.adapter = noticeAdapter
+
+        fabNewThread = findViewById(R.id.fab_new_thread)
+        fabNewThread.setOnClickListener {
+            if (!isLoggedIn()) { showLogin(); return@setOnClickListener }
+            openNewThread()
+        }
         findViewById<View>(R.id.profile_logout).setOnClickListener { doLogout() }
         findViewById<View>(R.id.profile_open_web).setOnClickListener {
             val u = menuLinks?.profile ?: return@setOnClickListener
@@ -595,6 +612,8 @@ class MainActivity : AppCompatActivity() {
         replySend = findViewById(R.id.reply_send)
         replyCancel = findViewById(R.id.reply_cancel)
         replyQuotesContainer = findViewById(R.id.reply_quotes)
+        replyHeaderTitle = findViewById(R.id.reply_header_title)
+        replySubject = findViewById(R.id.reply_subject)
         replySend.setOnClickListener { submitReply() }
         replyCancel.setOnClickListener { hideReply() }
 
@@ -618,7 +637,8 @@ class MainActivity : AppCompatActivity() {
             onQuote = { post -> quotePost(post) },
             // "+": alterna la cita en la respuesta (sin abrir el panel).
             onMultiquoteToggle = { post -> toggleMultiquote(post) },
-            isSelected = { pid -> replyQuotes.containsKey(pid) }
+            isSelected = { pid -> replyQuotes.containsKey(pid) },
+            onMenu = { post, anchor -> showPostMenu(post, anchor) }
         )
         val lm = LinearLayoutManager(this)
         postList.layoutManager = lm
@@ -726,17 +746,93 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openReply() {
+    /** Abre la pantalla de escritura en el modo dado (reply | edit | newthread). */
+    private fun showComposer(mode: String, title: String, showSubject: Boolean) {
+        replyMode = mode
         isReplyVisible = true
         replyPanel.visibility = View.VISIBLE
         threadPanel.visibility = View.GONE
+        nativePanel.visibility = View.GONE
         // Pantalla de escritura = sin barra de navegación: el teclado ocupa su hueco
         // y se escribe cómodo (la barra no "sube" con el teclado).
         bottomNav.visibility = View.GONE
+        replyHeaderTitle.text = title
+        replySubject.visibility = if (showSubject) View.VISIBLE else View.GONE
         renderReplyQuotes()
-        replyInput.requestFocus()
+        val focus = if (showSubject) replySubject else replyInput
+        focus.requestFocus()
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        imm.showSoftInput(replyInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        imm.showSoftInput(focus, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun openReply() = showComposer("reply", "Responder", showSubject = false)
+
+    /** FAB: nuevo hilo en el subforo actual (asunto + editor). */
+    private fun openNewThread() {
+        replyQuotes.clear()
+        postAdapter.refreshSelection()
+        replyInput.setText("")
+        replySubject.setText("")
+        editingPid = ""
+        showComposer("newthread", "Nuevo hilo", showSubject = true)
+    }
+
+    /** Menú ⋮ de un post propio: editar o borrar. */
+    private fun showPostMenu(post: PostItem, anchor: View) {
+        val menu = androidx.appcompat.widget.PopupMenu(this, anchor)
+        menu.menu.add(0, 1, 0, "Editar")
+        menu.menu.add(0, 2, 1, "Borrar")
+        menu.setOnMenuItemClickListener { mi ->
+            when (mi.itemId) {
+                1 -> { startEdit(post); true }
+                2 -> { confirmDelete(post); true }
+                else -> false
+            }
+        }
+        menu.show()
+    }
+
+    private fun startEdit(post: PostItem) {
+        editingPid = post.pid
+        replyQuotes.clear()
+        replyInput.setText("")   // se rellena al cargar el BBCode real
+        replySubject.setText("")
+        showComposer("edit", "Editar mensaje", showSubject = false)
+        replySend.isEnabled = false
+        replySend.text = "…"
+        webView.evaluateJavascript("window.fcLoadPostForEdit&&fcLoadPostForEdit('${jsEscape(post.pid)}')", null)
+    }
+
+    private fun onEditLoad(json: String) {
+        replySend.isEnabled = true
+        replySend.text = "Guardar"
+        try {
+            val o = org.json.JSONObject(json)
+            if (!o.optBoolean("ok", false)) {
+                toast("No se pudo cargar el mensaje")
+                hideReply()
+                return
+            }
+            if (o.optString("pid") != editingPid) return
+            replyInput.setText(o.optString("message"))
+            replyInput.setSelection(replyInput.text.length)
+            if (o.optBoolean("hasSubject", false)) {
+                replySubject.setText(o.optString("subject"))
+                replySubject.visibility = View.VISIBLE
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun confirmDelete(post: PostItem) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Borrar mensaje")
+            .setMessage("¿Seguro que quieres borrar este mensaje? No se puede deshacer.")
+            .setPositiveButton("Borrar") { _, _ ->
+                toast("Borrando…")
+                webView.evaluateJavascript("window.fcDeletePost&&fcDeletePost('${jsEscape(post.pid)}')", null)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun hideReply() {
@@ -744,9 +840,16 @@ class MainActivity : AppCompatActivity() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(replyInput.windowToken, 0)
         replyInput.clearFocus()
+        replySubject.clearFocus()
         replyPanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
-        threadPanel.visibility = View.VISIBLE
+        // Nuevo hilo se abrió desde la lista; responder/editar desde el hilo.
+        if (replyMode == "newthread") {
+            nativePanel.visibility = View.VISIBLE
+        } else {
+            threadPanel.visibility = View.VISIBLE
+        }
+        replyMode = "reply"
     }
 
     /** Reconstruye las tarjetas de cita del panel a partir de replyQuotes. */
@@ -792,8 +895,18 @@ class MainActivity : AppCompatActivity() {
         s.replace("\\", "\\\\").replace("'", "\\'")
             .replace("\r", "").replace("\n", "\\n")
 
+    private val signature = "\n\n\n[SIZE=1]Enviado desde ForoPlus[/SIZE]"
+
     private fun submitReply() {
         if (sendingReply) return
+        when (replyMode) {
+            "newthread" -> submitNewThread()
+            "edit" -> submitEdit()
+            else -> submitReplyPost()
+        }
+    }
+
+    private fun submitReplyPost() {
         val body = replyInput.text.toString().trim()
         if (body.isEmpty() && replyQuotes.isEmpty()) { toast("Escribe algo antes de enviar"); return }
         if (currentThreadTid.isEmpty()) { toast("No se pudo identificar el hilo"); return }
@@ -802,14 +915,43 @@ class MainActivity : AppCompatActivity() {
         val quotes = replyQuotes.values.joinToString("") { quoteBlock(it) }
         var msg = (quotes + body).trim()
         if (msg.isEmpty()) { toast("Escribe algo antes de enviar"); return }
-        msg += "\n\n\n[SIZE=1]Enviado desde ForoPlus[/SIZE]"
-        sendingReply = true
-        replySend.isEnabled = false
-        replySend.text = "Enviando…"
+        msg += signature
+        startSending("Enviando…")
         webView.evaluateJavascript(
             "window.fcSubmitReply&&fcSubmitReply('${jsEscape(currentThreadTid)}','${jsEscape(msg)}')",
             null
         )
+    }
+
+    private fun submitNewThread() {
+        val subject = replySubject.text.toString().trim()
+        val body = replyInput.text.toString().trim()
+        if (subject.isEmpty()) { toast("Ponle un título al hilo"); return }
+        if (body.isEmpty()) { toast("Escribe el mensaje del hilo"); return }
+        val msg = body + signature
+        startSending("Creando…")
+        webView.evaluateJavascript(
+            "window.fcCreateThread('$currentForumId','${jsEscape(subject)}','${jsEscape(msg)}')", null
+        )
+    }
+
+    private fun submitEdit() {
+        val body = replyInput.text.toString().trim()
+        if (body.isEmpty()) { toast("El mensaje no puede quedar vacío"); return }
+        if (editingPid.isEmpty()) { toast("No se pudo identificar el mensaje"); return }
+        // Primer post del hilo: FC muestra el asunto, hay que reenviarlo.
+        val subj = if (replySubject.visibility == View.VISIBLE) replySubject.text.toString().trim() else ""
+        // Al editar NO se añade firma (el texto cargado ya la lleva si la tenía).
+        startSending("Guardando…")
+        webView.evaluateJavascript(
+            "window.fcEditPost('${jsEscape(editingPid)}','${jsEscape(body)}','${jsEscape(subj)}')", null
+        )
+    }
+
+    private fun startSending(label: String) {
+        sendingReply = true
+        replySend.isEnabled = false
+        replySend.text = label
     }
 
     private fun onReplyResult(json: String) {
@@ -838,6 +980,59 @@ class MainActivity : AppCompatActivity() {
         } else {
             toast(if (err.isNotEmpty()) err else "No se pudo enviar la respuesta")
         }
+    }
+
+    /** Resultado de crear hilo / editar / borrar. */
+    private fun onThreadActionResult(json: String) {
+        sendingReply = false
+        replySend.isEnabled = true
+        val action: String
+        val ok: Boolean
+        val err: String
+        val tid: String
+        try {
+            val o = org.json.JSONObject(json)
+            action = o.optString("action")
+            ok = o.optBoolean("ok", false)
+            err = o.optString("error", "")
+            tid = o.optString("tid", "")
+        } catch (_: Exception) { return }
+        when (action) {
+            "create" -> {
+                replySend.text = "Enviar"
+                if (ok) {
+                    replyInput.setText(""); replySubject.setText("")
+                    hideReply()
+                    toast("Hilo creado")
+                    if (tid.isNotEmpty()) openThreadNative("https://forocoches.com/foro/showthread.php?t=$tid", "")
+                    else showHomeList()
+                } else toast(if (err.isNotEmpty()) err else "No se pudo crear el hilo")
+            }
+            "edit" -> {
+                replySend.text = "Guardar"
+                if (ok) {
+                    replyInput.setText("")
+                    hideReply()
+                    toast("Mensaje editado")
+                    reloadCurrentThread()
+                } else toast(if (err.isNotEmpty()) err else "No se pudo editar el mensaje")
+            }
+            "delete" -> {
+                if (ok) {
+                    toast("Mensaje borrado")
+                    reloadCurrentThread()
+                } else toast(if (err.isNotEmpty()) err else "No se pudo borrar el mensaje")
+            }
+        }
+    }
+
+    /** Recarga el hilo abierto desde la página 1 (tras editar/borrar un post). */
+    private fun reloadCurrentThread() {
+        if (currentThreadUrl.isEmpty()) return
+        threadPage = 1
+        postAdapter.clear()
+        loadingThreadPage = false
+        requestThreadPage(1)
     }
 
     // ── Panel de login nativo (Fase 3) ───────────────────────────────────────
@@ -978,8 +1173,11 @@ class MainActivity : AppCompatActivity() {
         postAdapter.clear()
         // Respuesta limpia por hilo: sin borrador ni citas heredadas.
         replyInput.setText("")
+        replySubject.setText("")
         replyQuotes.clear()
-        if (isReplyVisible) hideReply()
+        editingPid = ""
+        replyMode = "reply"
+        if (isReplyVisible) { isReplyVisible = false; replyPanel.visibility = View.GONE }
         restrictedView.visibility = View.GONE
         threadTitle.text = title
         threadPageInfo.text = ""
@@ -1113,6 +1311,8 @@ class MainActivity : AppCompatActivity() {
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
+        // FAB de crear hilo: solo en un subforo real y con sesión.
+        fabNewThread.visibility = if (listSource == "home" && isLoggedIn()) View.VISIBLE else View.GONE
         // invisible (no gone): el WebView sigue vivo debajo como motor de datos.
         swipeRefresh.visibility = View.INVISIBLE
     }

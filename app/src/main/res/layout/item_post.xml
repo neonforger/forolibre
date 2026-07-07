@@ -38,6 +38,23 @@
             android:layout_height="wrap_content"
             android:textSize="11sp"
             android:textColor="#9E9E9E" />
+
+        <TextView
+            android:id="@+id/post_menu"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:text="⋮"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Opciones del mensaje"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView

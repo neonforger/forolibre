@@ -80,6 +80,19 @@
                     android:textColor="#757575"
                     android:textSize="14sp"
                     android:visibility="gone" />
+
+                <!-- Crear hilo nuevo en el subforo actual (Bloque crear/editar/borrar). -->
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/fab_new_thread"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:layout_margin="18dp"
+                    android:src="@drawable/ic_add"
+                    android:contentDescription="Crear hilo nuevo"
+                    app:backgroundTint="#C8102E"
+                    app:tint="#FFFFFF"
+                    android:visibility="gone" />
             </FrameLayout>
         </LinearLayout>
 
@@ -271,6 +284,7 @@
                     android:contentDescription="Cancelar" />
 
                 <TextView
+                    android:id="@+id/reply_header_title"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -310,6 +324,24 @@
                     android:paddingEnd="12dp"
                     android:paddingTop="8dp"
                     android:paddingBottom="12dp">
+
+                    <!-- Asunto: solo visible al crear hilo nuevo. -->
+                    <EditText
+                        android:id="@+id/reply_subject"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="6dp"
+                        android:background="#F3F3F3"
+                        android:padding="12dp"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#212121"
+                        android:hint="Título del hilo"
+                        android:textColorHint="#9E9E9E"
+                        android:inputType="text|textCapSentences"
+                        android:maxLines="2"
+                        android:importantForAutofill="no"
+                        android:visibility="gone" />
 
                     <!-- Tarjetas de cita (una por post citado), añadidas por código. -->
                     <LinearLayout

@@ -41,6 +41,38 @@
     return !!(a.closest && a.closest('.user-profile-menu-container, .header-container'));
   }
 
+  // ── Helpers de envío de formularios (crear/editar/borrar) ───────────────────
+  // Copia TODOS los campos de un form real de FC a URLSearchParams (menos ficheros
+  // y submits sin marcar), aplica overrides y descarta los de 'drop'. Mismo principio
+  // que fcSubmitReply: no reimplementamos nada, reutilizamos el form con su token.
+  function copyFormFields(form, overrides, drop) {
+    var params = new URLSearchParams();
+    form.querySelectorAll('input, textarea, select').forEach(function (el) {
+      var nm = el.getAttribute('name'); if (!nm) return;
+      var type = (el.getAttribute('type') || '').toLowerCase();
+      if (type === 'file') return;
+      if (drop && drop.indexOf(nm) !== -1) return;
+      if ((type === 'checkbox' || type === 'radio') && !el.checked) return;
+      if (type === 'submit') return; // el submit se pasa por override (sbutton)
+      params.set(nm, el.value || '');
+    });
+    if (overrides) Object.keys(overrides).forEach(function (k) { params.set(k, overrides[k]); });
+    return params;
+  }
+
+  // Texto del mensaje de error de FC (validación, anti-flood, permisos).
+  function extractErr(html) {
+    var em = html.match(/<(?:div|li|p)[^>]*class="[^"]*(?:standard_error|error|blockrow)[^"]*"[^>]*>\s*([^<]{4,200})/i);
+    return em ? em[1].replace(/\s+/g, ' ').trim() : '';
+  }
+
+  // El primer form del doc que contiene el selector dado (p. ej. el textarea message).
+  function formWith(doc, selector) {
+    var fs = [].slice.call(doc.querySelectorAll('form'));
+    for (var i = 0; i < fs.length; i++) if (fs[i].querySelector(selector)) return fs[i];
+    return null;
+  }
+
   function parseRow(row, tid) {
     var anchors = [];
     row.querySelectorAll(THREAD_SEL).forEach(function (x) { anchors.push(x); });
@@ -203,6 +235,10 @@
           var tIn = doc.querySelector('input[name="t"]');
           if (tIn && /^\d+$/.test(tIn.value || '')) tid = tIn.value;
         }
+        // Usuario logueado (para marcar los posts propios → menú editar/borrar).
+        // El quick-reply del hilo trae un hidden loggedinuser con el nombre.
+        var luEl = doc.querySelector('input[name="loggedinuser"]');
+        var loggedUser = luEl ? (luEl.value || '').trim() : '';
         var posts = [];
         doc.querySelectorAll('li.postbit').forEach(function (bit) {
           var wrap = bit.closest('div.postbit_wrapper') || bit;
@@ -253,7 +289,15 @@
             try { i.setAttribute('src', new URL(i.getAttribute('src'), 'https://forocoches.com/foro/').href); } catch (e) {}
           });
 
-          posts.push({ pid: pid, author: author, avatar: avatar, date: date, html: m.innerHTML });
+          // Post propio: autor == usuario logueado, o hay enlace de edición en el
+          // postbit (FC solo lo pinta en los posts que puedes editar).
+          var own = (loggedUser && author && author === loggedUser) ||
+            !!wrap.querySelector('a[href*="editpost.php"]');
+
+          posts.push({
+            pid: pid, author: author, avatar: avatar, date: date,
+            html: m.innerHTML, own: !!own
+          });
         });
         if (!posts.length) {
           // Sin posts + form de login en la página = hilo que requiere cuenta (+HD
@@ -350,6 +394,140 @@
         });
       })
       .catch(function (e) { AndroidShell.onReplyResult(JSON.stringify({ ok: false, error: String(e) })); });
+  };
+
+  // ── Crear hilo / editar / borrar (mismo patrón: form real + su token) ───────
+
+  // Crea un hilo en el subforo f: trae el form de newthread, copia sus campos,
+  // pone asunto+mensaje y reenvía con do=postthread. Éxito = redirige al hilo.
+  window.fcCreateThread = function (fid, subject, message) {
+    var base = 'https://forocoches.com/foro/newthread.php';
+    fetch(base + '?do=newthread&f=' + fid, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var f = formWith(doc, 'textarea[name="message"]');
+        if (!f) { AndroidShell.onThreadAction(JSON.stringify({ action: 'create', ok: false, error: 'no-form' })); return null; }
+        var params = copyFormFields(f, {
+          subject: subject, message: message, do: 'postthread', wysiwyg: '0'
+        }, ['preview']);
+        if (!params.has('sbutton')) params.set('sbutton', 'Enviar el nuevo tema');
+        return fetch(base + '?do=postthread', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        var fu = r.url || '';
+        return r.text().then(function (h) {
+          var tid = (fu.match(/showthread\.php\?t=(\d+)/) || [])[1] ||
+            (h.match(/showthread\.php\?t=(\d+)/) || [])[1] || '';
+          var ok = fu.indexOf('showthread.php') !== -1 || !!tid;
+          AndroidShell.onThreadAction(JSON.stringify({ action: 'create', ok: ok, error: ok ? '' : extractErr(h), tid: tid }));
+        });
+      })
+      .catch(function (e) { AndroidShell.onThreadAction(JSON.stringify({ action: 'create', ok: false, error: String(e) })); });
+  };
+
+  // Carga el BBCode actual de un post para precargar el editor al editar.
+  window.fcLoadPostForEdit = function (pid) {
+    fetch('https://forocoches.com/foro/editpost.php?do=editpost&p=' + pid, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var ta = doc.querySelector('textarea[name="message"]');
+        // Título del primer post: 'title' (skin nuevo) o 'subject'. Solo los primeros
+        // posts lo traen con valor; en respuestas normales no existe o va vacío.
+        var subj = doc.querySelector('input[name="title"]') || doc.querySelector('input[name="subject"]');
+        var hasSubject = !!(subj && (subj.value || '').trim());
+        AndroidShell.onEditLoad(JSON.stringify({
+          pid: pid, ok: !!ta,
+          message: ta ? ta.value : '',
+          subject: subj ? (subj.value || '') : '',
+          hasSubject: hasSubject
+        }));
+      })
+      .catch(function (e) { AndroidShell.onEditLoad(JSON.stringify({ pid: pid, ok: false, error: String(e) })); });
+  };
+
+  // Guarda la edición de un post (do=updatepost). Éxito = vuelve al hilo.
+  window.fcEditPost = function (pid, message, subject) {
+    var base = 'https://forocoches.com/foro/editpost.php';
+    fetch(base + '?do=editpost&p=' + pid, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var f = formWith(doc, 'textarea[name="message"]');
+        if (!f) { AndroidShell.onThreadAction(JSON.stringify({ action: 'edit', ok: false, error: 'no-form' })); return null; }
+        var ov = { message: message, do: 'updatepost', wysiwyg: '0' };
+        // El primer post del hilo lleva el título en 'title' (skin nuevo) o 'subject'.
+        if (subject) {
+          if (f.querySelector('input[name="title"]')) ov.title = subject;
+          else if (f.querySelector('input[name="subject"]')) ov.subject = subject;
+        }
+        var params = copyFormFields(f, ov, ['preview']);
+        if (!params.has('sbutton')) params.set('sbutton', 'Guardar cambios');
+        return fetch(base + '?do=updatepost', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        var fu = r.url || '';
+        return r.text().then(function (h) {
+          var ok = fu.indexOf('showthread.php') !== -1;
+          AndroidShell.onThreadAction(JSON.stringify({ action: 'edit', ok: ok, error: ok ? '' : extractErr(h), pid: pid }));
+        });
+      })
+      .catch(function (e) { AndroidShell.onThreadAction(JSON.stringify({ action: 'edit', ok: false, error: String(e) })); });
+  };
+
+  // Borra un post propio. En el skin nuevo la página de confirmación viene VACÍA
+  // (el borrado se dispara por JS), así que tomamos el token del form de EDICIÓN
+  // (mismo editpost, sí lo trae) y montamos el POST de borrado a mano. Verificamos
+  // el resultado re-consultando si el post sigue siendo editable (si no, se borró).
+  window.fcDeletePost = function (pid) {
+    var base = 'https://forocoches.com/foro/editpost.php';
+    fetch(base + '?do=editpost&p=' + pid, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var f = formWith(doc, 'textarea[name="message"]');
+        if (!f) { AndroidShell.onThreadAction(JSON.stringify({ action: 'delete', ok: false, error: 'no-form' })); return null; }
+        var st = f.querySelector('[name="securitytoken"]');
+        var sEl = f.querySelector('[name="s"]');
+        var params = new URLSearchParams();
+        params.set('do', 'deletepost');
+        params.set('postid', pid);
+        params.set('p', pid);
+        params.set('securitytoken', st ? (st.value || '') : '');
+        if (sEl) params.set('s', sEl.value || '');
+        params.set('deletepost', 'delete'); // radio "borrar" (vs restaurar)
+        params.set('deletetype', '1');      // borrado normal (soft)
+        params.set('reason', '');
+        return fetch(base + '?do=deletepost', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        return r.text().then(function () {
+          // Verificación fiable: ¿sigue editable el post? Si ya no, quedó borrado.
+          return fetch(base + '?do=editpost&p=' + pid, { credentials: 'same-origin' })
+            .then(function (r2) { return r2.text(); })
+            .then(function (h2) {
+              var doc2 = new DOMParser().parseFromString(h2, 'text/html');
+              var gone = !doc2.querySelector('textarea[name="message"]');
+              AndroidShell.onThreadAction(JSON.stringify({
+                action: 'delete', ok: gone, error: gone ? '' : 'No se pudo borrar el mensaje', pid: pid
+              }));
+            });
+        });
+      })
+      .catch(function (e) { AndroidShell.onThreadAction(JSON.stringify({ action: 'delete', ok: false, error: String(e) })); });
   };
 
   // ── Login desde UI nativa (Fase 3) ─────────────────────────────────────────
