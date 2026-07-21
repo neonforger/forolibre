@@ -135,6 +135,8 @@ class MainActivity : AppCompatActivity() {
     private var replaceOnLoad = false      // salto de página: la respuesta REEMPLAZA la lista
     private var prependOnLoad = false      // página anterior: la respuesta va DELANTE
     private var firstLoadedPage = 1        // primera página en memoria (threadPage = la última)
+    private var pendingScrollPid = ""      // post al que saltar tras cargar (citas, deep links)
+    private var pendingDeepLink = ""       // deep link recibido antes de tener motor listo
     private var loadingThreadPage = false
     private var isThreadVisible = false
     private var cameFromThread = false     // para que atrás desde la web vuelva al hilo
@@ -481,8 +483,14 @@ class MainActivity : AppCompatActivity() {
         // El WebView arranca OCULTO como motor: al terminar de cargar, extractor.js queda
         // inyectado y pedimos el listado por fetch same-origin (nunca HTTP nativo).
         val startUrl = TrustedOrigins.trustedUrlOrDefault(intent.getStringExtra("url"))
-        if (startUrl != TrustedOrigins.DEFAULT_URL) {
-            // Deep link (p. ej. notificación): directo a la capa web, como siempre.
+        if (startUrl != TrustedOrigins.DEFAULT_URL && startUrl.contains("showthread.php")) {
+            // Deep link de hilo en frío: el motor aún no está listo, así que se guarda y se
+            // abre en NATIVO en onEnginePageReady. Nada de enseñar el foro web.
+            pendingDeepLink = startUrl
+            showNative()
+            listLoading.visibility = View.VISIBLE
+            webView.loadUrl(TrustedOrigins.DEFAULT_URL)
+        } else if (startUrl != TrustedOrigins.DEFAULT_URL) {
             showWeb()
             webView.loadUrl(startUrl)
         } else {
@@ -577,7 +585,7 @@ class MainActivity : AppCompatActivity() {
         configureThreadPanel()
 
         // Secciones nativas (Bloque B): citas/menciones y perfil.
-        noticeAdapter = NoticeAdapter { n -> openThreadNative(n.url.substringBefore("#"), n.title) }
+        noticeAdapter = NoticeAdapter { n -> openThreadNative(n.url, n.title) }
         noticesList.layoutManager = LinearLayoutManager(this)
         noticesList.adapter = noticeAdapter
 
@@ -1306,6 +1314,26 @@ class MainActivity : AppCompatActivity() {
         sheet.show()
     }
 
+    /** pid de una URL de post: showthread.php?p=NNN o .../showthread.php?t=1#post NNN. */
+    private fun pidFromUrl(url: String): String =
+        Regex("[?&]p=(\\d+)").find(url)?.groupValues?.get(1)
+            ?: Regex("#post(\\d+)").find(url)?.groupValues?.get(1) ?: ""
+
+    /**
+     * Deep link (notificación de cita/mención, enlace a post). REGLA DE ORO: el foro de
+     * debajo NO se ve. Antes esto hacía showWeb()+loadUrl y al tocar la notificación se
+     * abría el ForoCoches web crudo — justo lo que no debe pasar. Ahora los enlaces de hilo
+     * abren la vista NATIVA y saltan al post concreto; solo lo que aún no tiene vista propia
+     * (MPs) cae a la capa web.
+     */
+    private fun openDeepLink(url: String): Boolean {
+        if (!TrustedOrigins.isTrustedForocochesUrl(url)) return false
+        if (!url.contains("showthread.php")) return false
+        if (!engineReady) { pendingDeepLink = url; return true }  // se reintenta al arrancar
+        openThreadNative(url, "")
+        return true
+    }
+
     private fun openThreadNative(url: String, title: String) {
         currentThreadUrl = url.substringBefore("&page=")
         currentThreadTid = Regex("[?&]t=(\\d+)").find(url)?.groupValues?.get(1) ?: ""
@@ -1314,6 +1342,10 @@ class MainActivity : AppCompatActivity() {
         firstLoadedPage = 1
         replaceOnLoad = false
         prependOnLoad = false
+        // Si la URL apunta a un post concreto (?p= o #postN), al cargar se salta a él en vez
+        // de dejar al usuario buscándolo a mano por el scroll. FC sirve en ?p= la página que
+        // contiene ese post, así que siempre está entre los que llegan.
+        pendingScrollPid = pidFromUrl(url)
         postAdapter.clear()
         // Respuesta limpia por hilo: sin borrador ni citas heredadas.
         replyInput.setText("")
@@ -1402,6 +1434,16 @@ class MainActivity : AppCompatActivity() {
                 if (jumped) postList.scrollToPosition(0)
             }
             else -> postAdapter.append(visible)
+        }
+
+        // Salto al post citado: se hace DESPUÉS de poblar la lista y una sola vez.
+        if (pendingScrollPid.isNotEmpty()) {
+            val pos = postAdapter.indexOfPid(pendingScrollPid)
+            if (pos >= 0) {
+                pendingScrollPid = ""
+                val lm = postList.layoutManager as LinearLayoutManager
+                postList.post { lm.scrollToPositionWithOffset(pos, 0) }
+            }
         }
     }
 
@@ -1546,6 +1588,11 @@ class MainActivity : AppCompatActivity() {
             )
         }
         if (!listLoaded) requestThreadList(1)
+        if (pendingDeepLink.isNotEmpty()) {
+            val dl = pendingDeepLink
+            pendingDeepLink = ""
+            openDeepLink(dl)
+        }
     }
 
     private fun requestThreadList(page: Int) {
@@ -1712,6 +1759,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         val url = TrustedOrigins.trustedUrlOrDefault(intent.getStringExtra("url"))
+        if (openDeepLink(url)) return       // hilo → vista nativa, saltando al post citado
         showWeb()
         webView.loadUrl(url)
     }

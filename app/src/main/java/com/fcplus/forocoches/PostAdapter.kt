@@ -196,6 +196,9 @@ class PostAdapter(
     /** Página del post en la posición dada (para el indicador de página al hacer scroll). */
     fun pageAt(pos: Int): Int = items.getOrNull(pos)?.page ?: 1
 
+    /** Posición de un post por su pid, o -1 (para saltar a una cita/mención concreta). */
+    fun indexOfPid(pid: String): Int = items.indexOfFirst { it.pid == pid }
+
     override fun getItemCount() = items.size
 
     class Holder(v: View) : RecyclerView.ViewHolder(v) {
