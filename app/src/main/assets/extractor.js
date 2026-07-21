@@ -73,6 +73,72 @@
     return null;
   }
 
+  // ── Embeds: convierte el markup de FC (blockquotes de Twitter/IG/TikTok, iframes,
+  // enlaces de YouTube) en algo que la tarjeta nativa SÍ sabe pintar. YouTube → una
+  // miniatura real tocable; el resto → una "tarjeta-enlace" con icono de plataforma.
+  function ytIdFrom(url) {
+    var m = url.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([A-Za-z0-9_-]{6,})/);
+    return m ? m[1] : '';
+  }
+
+  // Nodo tarjeta-enlace: [icono] Texto → se abre al tocar (URLSpan en el render nativo).
+  function embedCard(doc, href, label) {
+    var a = doc.createElement('a');
+    a.setAttribute('href', href);
+    var b = doc.createElement('b');
+    b.textContent = label;
+    a.appendChild(b);
+    return a;
+  }
+
+  // Miniatura de YouTube tocable: <a href=watch><img thumb></a> + pie "▶ YouTube".
+  function youtubeThumb(doc, videoUrl, id) {
+    var wrap = doc.createElement('div');
+    var a = doc.createElement('a');
+    a.setAttribute('href', videoUrl);
+    var img = doc.createElement('img');
+    img.setAttribute('src', 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg');
+    a.appendChild(img);
+    wrap.appendChild(a);
+    wrap.appendChild(doc.createElement('br'));
+    wrap.appendChild(embedCard(doc, videoUrl, '▶ Ver en YouTube'));
+    return wrap;
+  }
+
+  function processEmbeds(m, doc, pageUrl) {
+    // Twitter / X
+    m.querySelectorAll('blockquote.twitter-tweet').forEach(function (bq) {
+      var a = bq.querySelector('a[href*="/status/"]') || bq.querySelector('a[href]');
+      var href = a ? a.getAttribute('href') : '';
+      var who = (href.match(/(?:twitter|x)\.com\/([^\/]+)\/status/) || [])[1] || '';
+      bq.replaceWith(embedCard(doc, href || pageUrl, who ? ('🐦  Ver tweet de @' + who) : '🐦  Ver tweet'));
+    });
+    // Instagram
+    m.querySelectorAll('blockquote.instagram-media, [data-instgrm-permalink]').forEach(function (bq) {
+      var href = bq.getAttribute('data-instgrm-permalink') ||
+        (bq.querySelector('a[href]') ? bq.querySelector('a[href]').getAttribute('href') : '');
+      href = (href || '').split('?')[0];
+      bq.replaceWith(embedCard(doc, href || pageUrl, '📷  Ver publicación de Instagram'));
+    });
+    // TikTok (el blockquote llega vacío → sin esto no se ve NADA)
+    m.querySelectorAll('blockquote.tiktok-embed').forEach(function (bq) {
+      var vid = bq.getAttribute('data-video-id') || '';
+      var href = vid ? ('https://www.tiktok.com/@x/video/' + vid) :
+        (bq.querySelector('a[href]') ? bq.querySelector('a[href]').getAttribute('href') : pageUrl);
+      bq.replaceWith(embedCard(doc, href, '🎵  Ver vídeo de TikTok'));
+    });
+    // YouTube en iframe
+    m.querySelectorAll('iframe[src*="youtube"], iframe[src*="youtu.be"], iframe[src*="ytimg"]').forEach(function (f) {
+      var id = ytIdFrom(f.getAttribute('src') || '');
+      if (id) f.replaceWith(youtubeThumb(doc, 'https://www.youtube.com/watch?v=' + id, id));
+    });
+    // YouTube como enlace pelado (lo más común en FC)
+    m.querySelectorAll('a[href*="youtube.com/watch"], a[href*="youtu.be/"], a[href*="youtube.com/shorts"]').forEach(function (a) {
+      var id = ytIdFrom(a.getAttribute('href') || '');
+      if (id) a.replaceWith(youtubeThumb(doc, a.getAttribute('href'), id));
+    });
+  }
+
   function parseRow(row, tid) {
     var anchors = [];
     row.querySelectorAll(THREAD_SEL).forEach(function (x) { anchors.push(x); });
@@ -126,6 +192,64 @@
       if (item) threads.push(item);
     });
     return threads;
+  }
+
+  // Resultados de búsqueda (Mis hilos / Participados). FC NO usa el markup threadbit
+  // aquí: cada resultado es un bloque con el título en <a href="showthread.php?t=N&highlight=">
+  // y la meta ("NN @ usuario", fecha) en <a href="showthread.php?p=...&highlight=">. El
+  // discriminador fiable frente a menús/anuncios/notices es el sufijo &highlight= del href
+  // (los enlaces de menú/notice/settings NO lo llevan).
+  function parseSearchDoc(doc) {
+    var seen = new Set();
+    var threads = [];
+    doc.querySelectorAll('a[href*="showthread.php?t="][href*="highlight"]').forEach(function (a) {
+      var tid = tidOf(a);
+      if (!tid || seen.has(tid) || inMenu(a)) return;
+      var title = a.textContent.replace(/\s+/g, ' ').trim();
+      if (!title) return;
+      seen.add(tid);
+      // Sube al bloque del resultado (el que agrupa título + meta + fecha, ≥3 enlaces highlight).
+      var item = a, el = a;
+      for (var i = 0; i < 6 && el; i++) {
+        if (el.querySelectorAll('a[href*="highlight"]').length >= 2) item = el;
+        if (el.querySelectorAll('a[href*="highlight"]').length >= 3) break;
+        el = el.parentElement;
+      }
+      var author = '', replies = '', time = '';
+      item.querySelectorAll('a[href*="highlight"]').forEach(function (x) {
+        var tx = x.textContent.replace(/\s+/g, ' ').trim();
+        var rm = tx.match(/^(\d+)\s*@\s*(.+)$/);           // "90 @ usuario"
+        if (rm) { replies = rm[1]; author = rm[2].trim(); }
+        else if (tx !== title && /\d{1,2}:\d{2}|ayer|hoy|-\w{3}-/i.test(tx)) time = tx;
+      });
+      threads.push({
+        tid: tid, title: title, author: author, replies: replies, time: time,
+        url: 'https://forocoches.com/foro/showthread.php?t=' + tid
+      });
+    });
+    return threads;
+  }
+
+  // Identidad del usuario logueado a partir de una página traída por fetch (el menú de
+  // usuario del HTML recién descargado SÍ trae el u= real; el DOM VIVO puede estar en la
+  // home de invitado y devolver u=0, que es justo lo que rompía Mis hilos).
+  function ownIdentity(doc) {
+    var id = { uid: '', user: '' };
+    var hdr = doc.querySelector('.user-profile-menu-header[href*="u="]');
+    if (hdr) {
+      var m = (hdr.getAttribute('href') || '').match(/u=(\d+)/);
+      if (m && m[1] !== '0') id.uid = m[1];
+      var un = hdr.querySelector('.username');
+      if (un) id.user = un.textContent.replace(/\s+/g, ' ').trim();
+    }
+    if (!id.uid) {
+      var links = doc.querySelectorAll('a[href*="member.php?u="]');
+      for (var i = 0; i < links.length; i++) {
+        var mm = (links[i].getAttribute('href') || '').match(/u=(\d+)/);
+        if (mm && mm[1] !== '0') { id.uid = mm[1]; break; }
+      }
+    }
+    return id;
   }
 
   // Contadores del menú (MP / citas / menciones) del doc RECIÉN traído — misma lógica
@@ -273,14 +397,14 @@
             bq.innerHTML = (who ? '<b>' + who + ' dijo:</b><br>' : '') + q.innerHTML;
             q.replaceWith(bq);
           });
+          // Embeds sociales (Twitter/IG/TikTok/YouTube) → tarjeta o miniatura nativa.
+          processEmbeds(m, doc, url);
+          // Lo que quede sin manejar (streamable, vocaroo, otros) → enlace genérico.
           m.querySelectorAll('iframe,video,embed,object').forEach(function (f) {
             var src = f.src || f.getAttribute('src') || '';
-            var a = doc.createElement('a');
-            a.setAttribute('href', src || url);
-            var host = 'embebido';
-            try { if (src) host = new URL(src, 'https://forocoches.com').host; } catch (e) {}
-            a.textContent = '▶ Ver contenido (' + host + ')';
-            f.replaceWith(a);
+            var host = 'contenido';
+            try { if (src) host = new URL(src, 'https://forocoches.com').host.replace(/^www\./, ''); } catch (e) {}
+            f.replaceWith(embedCard(doc, src || url, '▶  Ver en ' + host));
           });
           m.querySelectorAll('a[href]').forEach(function (a) {
             try { a.setAttribute('href', new URL(a.getAttribute('href'), 'https://forocoches.com/foro/').href); } catch (e) {}
@@ -701,6 +825,63 @@
           return;
         }
         AndroidShell.onThreadList(JSON.stringify(payload));
+      })
+      .catch(function (e) { AndroidShell.onListError(String(e)); });
+  };
+
+  // Mis hilos ('started') y Participados ('participated'). El UID real NO está en el DOM
+  // vivo (FC lo enmascara a u=0), así que se resuelve del HTML recién traído. 'started'
+  // usa la búsqueda finduser (hilos iniciados); 'participated' usa la búsqueda por nombre
+  // de usuario con showposts=0 para que agrupe en HILOS y no en posts sueltos. Ambas
+  // comparten el markup de resultados → parseSearchDoc. La finalUrl (searchid) permite paginar.
+  window.fcLoadOwnThreads = function (mode, pageUrl) {
+    function emit(doc, finalUrl) {
+      if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+        AndroidShell.onListError('cloudflare'); return;
+      }
+      var threads = parseSearchDoc(doc);
+      var payload = { url: finalUrl, finalUrl: finalUrl, menu: menuLinks(), counts: menuCounts(doc), threads: threads };
+      if (!threads.length) { AndroidShell.onListError('empty'); return; }
+      AndroidShell.onThreadList(JSON.stringify(payload));
+    }
+    // Paginación: la URL con searchid ya identifica la búsqueda; solo hace falta traerla.
+    if (pageUrl) {
+      fetch(pageUrl, { credentials: 'same-origin' })
+        .then(function (r) { return r.text().then(function (h) { return { h: h, u: r.url || pageUrl }; }); })
+        .then(function (res) { emit(new DOMParser().parseFromString(res.h, 'text/html'), res.u); })
+        .catch(function (e) { AndroidShell.onListError(String(e)); });
+      return;
+    }
+    // Página 1: resolver identidad (uid + usuario) y el token de búsqueda del HTML traído.
+    fetch('https://forocoches.com/foro/search.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var sdoc = new DOMParser().parseFromString(html, 'text/html');
+        var id = ownIdentity(sdoc);
+        var tokEl = sdoc.querySelector('input[name="securitytoken"]');
+        var token = tokEl ? tokEl.value : '';
+        if (mode === 'started' && id.uid) {
+          // Hilos iniciados: finduser por UID (GET), formato de hilos garantizado.
+          var gurl = 'https://forocoches.com/foro/search.php?do=finduser&u=' + id.uid + '&starteronly=1';
+          return fetch(gurl, { credentials: 'same-origin' })
+            .then(function (r) { return r.text().then(function (h) { return { h: h, u: r.url || gurl }; }); });
+        }
+        // Participados (o sin uid): búsqueda por nombre de usuario, agrupada en hilos.
+        if (!id.user || !token) { AndroidShell.onListError('empty'); return null; }
+        var body = new URLSearchParams();
+        body.set('do', 'process'); body.set('securitytoken', token);
+        body.set('query', ''); body.set('titleonly', '0');
+        body.set('searchuser', id.user); body.set('exactname', '1');
+        body.set('starteronly', mode === 'started' ? '1' : '0');
+        body.set('showposts', '0'); body.set('dosearch', 'Buscar');
+        return fetch('https://forocoches.com/foro/search.php?do=process', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+        }).then(function (r) { return r.text().then(function (h) { return { h: h, u: r.url }; }); });
+      })
+      .then(function (res) {
+        if (!res) return;
+        emit(new DOMParser().parseFromString(res.h, 'text/html'), res.u);
       })
       .catch(function (e) { AndroidShell.onListError(String(e)); });
   };

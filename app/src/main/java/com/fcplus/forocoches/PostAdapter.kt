@@ -154,6 +154,10 @@ class PostAdapter(
     private val items = ArrayList<PostItem>()
     private val seenPids = HashSet<String>()
 
+    /** Tamaño de letra del cuerpo del post (Opciones → Fuente). Se aplica al renderizar. */
+    var postTextSp = 15f
+        set(value) { field = value; notifyDataSetChanged() }
+
     /** Texto plano de un post para citar: sin HTML y sin citas anidadas previas. */
     fun quoteBodyOf(item: PostItem): String {
         val noQuotes = item.html.replace(Regex("(?is)<blockquote.*?</blockquote>"), " ")
@@ -243,6 +247,7 @@ class PostAdapter(
      *  re-renderizan el post cuando llegan (la caché evita bucles de descarga). */
     private fun renderContent(h: Holder, item: PostItem) {
         val tv = h.content
+        tv.textSize = postTextSp
         val maxW = (tv.context.resources.displayMetrics.widthPixels * 0.78f).toInt()
         val pid = item.pid
         val getter = Html.ImageGetter { src ->

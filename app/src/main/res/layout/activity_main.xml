@@ -22,19 +22,41 @@
             android:orientation="vertical"
             android:background="#FFFFFF">
 
-            <TextView
-                android:id="@+id/native_header"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
-                android:text="ForoPlus"
-                android:textColor="#C8102E"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:background="#FFFFFF" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#FFFFFF">
+
+                <TextView
+                    android:id="@+id/native_header"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="8dp"
+                    android:text="ForoPlus"
+                    android:textColor="#C8102E"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/native_options"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="16dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="⚙"
+                    android:textSize="20sp"
+                    android:textColor="#616161"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Opciones" />
+            </LinearLayout>
 
             <com.google.android.material.tabs.TabLayout
                 android:id="@+id/forum_tabs"
@@ -437,6 +459,16 @@
                         android:text="▶" />
 
                     <TextView
+                        android:id="@+id/fmt_quote"
+                        style="@style/FmtButton"
+                        android:text="❝" />
+
+                    <TextView
+                        android:id="@+id/fmt_spoiler"
+                        style="@style/FmtButton"
+                        android:text="▓" />
+
+                    <TextView
                         android:id="@+id/fmt_smiley"
                         style="@style/FmtButton"
                         android:text="🙂" />
@@ -561,6 +593,203 @@
                 android:textStyle="bold"
                 android:textColor="#FFFFFF"
                 android:background="#C8102E" />
+        </LinearLayout>
+
+        <!-- Capa OPCIONES nativa: fuente, avatar, filtros de palabras y usuarios ignorados. -->
+        <LinearLayout
+            android:id="@+id/options_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#FFFFFF"
+                android:elevation="2dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp">
+
+                <TextView
+                    android:id="@+id/options_back"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="←"
+                    android:textSize="20sp"
+                    android:textColor="#616161"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Volver" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="Opciones"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="#1A1A1A" />
+            </LinearLayout>
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingBottom="24dp">
+
+                    <!-- Fuente -->
+                    <TextView style="@style/OptSection" android:text="Tamaño de fuente" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="6dp">
+
+                        <TextView android:id="@+id/opt_font_small" style="@style/OptChip" android:text="Pequeña" />
+                        <TextView android:id="@+id/opt_font_normal" style="@style/OptChip" android:text="Normal" />
+                        <TextView android:id="@+id/opt_font_large" style="@style/OptChip" android:text="Grande" />
+                    </LinearLayout>
+
+                    <!-- Cuenta -->
+                    <TextView style="@style/OptSection" android:text="Cuenta" />
+
+                    <TextView
+                        android:id="@+id/opt_avatar"
+                        style="@style/OptRow"
+                        android:text="Cambiar avatar" />
+
+                    <TextView
+                        android:id="@+id/opt_edit_profile"
+                        style="@style/OptRow"
+                        android:text="Editar perfil" />
+
+                    <!-- Filtro de palabras -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="22dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Filtro de palabras"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#C8102E"
+                            android:letterSpacing="0.03" />
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/opt_kw_switch"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Oculta hilos cuyo título contenga estas palabras."
+                        android:textSize="12sp"
+                        android:textColor="#9E9E9E" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <EditText
+                            android:id="@+id/opt_kw_input"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:hint="Añadir palabra"
+                            android:textColorHint="#9E9E9E"
+                            android:textSize="14sp"
+                            android:textColor="#212121"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:importantForAutofill="no" />
+
+                        <TextView
+                            android:id="@+id/opt_kw_add"
+                            style="@style/OptAddBtn"
+                            android:text="Añadir" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/opt_kw_chips"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="6dp" />
+
+                    <!-- Usuarios ignorados -->
+                    <TextView style="@style/OptSection" android:text="Usuarios ignorados" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Oculta los mensajes e hilos de estos usuarios."
+                        android:textSize="12sp"
+                        android:textColor="#9E9E9E" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <EditText
+                            android:id="@+id/opt_ig_input"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:hint="Nombre de usuario"
+                            android:textColorHint="#9E9E9E"
+                            android:textSize="14sp"
+                            android:textColor="#212121"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:importantForAutofill="no" />
+
+                        <TextView
+                            android:id="@+id/opt_ig_add"
+                            style="@style/OptAddBtn"
+                            android:text="Añadir" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/opt_ig_chips"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="6dp" />
+                </LinearLayout>
+            </ScrollView>
         </LinearLayout>
 
         <!-- Capa LOGIN nativa (Fase 3): formulario propio. Las credenciales las envía
@@ -720,6 +949,12 @@
 
             <include
                 android:id="@+id/nav_mythreads"
+                layout="@layout/nav_item"
+                android:layout_width="76dp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/nav_participated"
                 layout="@layout/nav_item"
                 android:layout_width="76dp"
                 android:layout_height="wrap_content" />

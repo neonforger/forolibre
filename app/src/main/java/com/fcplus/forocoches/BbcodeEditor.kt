@@ -223,11 +223,14 @@ class BbcodeEditor(private val context: Context, private val input: EditText) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
             val img = ImageView(parent.context).apply {
+                // GridLayoutManager fija el ancho a la columna; alto fijo. FIT_CENTER
+                // AGRANDA los gifs pequeños de FC (CENTER_INSIDE solo encogía → enanos).
                 layoutParams = ViewGroup.LayoutParams(
-                    parent.width / 7, dp(48)
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
                 )
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setPadding(dp(6), dp(6), dp(6), dp(6))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = false
+                setPadding(dp(7), dp(7), dp(7), dp(7))
             }
             return Holder(img)
         }

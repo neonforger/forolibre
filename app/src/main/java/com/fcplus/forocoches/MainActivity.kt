@@ -45,7 +45,7 @@ class MainActivity : AppCompatActivity() {
     private val navLabels = HashMap<Int, TextView>()
     private val navBadges = HashMap<Int, TextView>()
     private val navIds = intArrayOf(
-        R.id.nav_home, R.id.nav_favs, R.id.nav_mythreads,
+        R.id.nav_home, R.id.nav_favs, R.id.nav_mythreads, R.id.nav_participated,
         R.id.nav_notif, R.id.nav_quotes, R.id.nav_profile
     )
     private lateinit var adapter: ThreadListAdapter
@@ -111,6 +111,11 @@ class MainActivity : AppCompatActivity() {
     private var listSource = "home"        // home | favs | mine (qué alimenta la lista nativa)
     private var myThreadsBase = ""         // search.php?searchid=N para paginar Mis hilos
 
+    // ── Opciones (fuente, avatar, filtros) ──
+    private lateinit var optionsPanel: View
+    private lateinit var options: OptionsController
+    private var isOptionsVisible = false
+
     // ── Panel de login nativo (Fase 3) ──
     private lateinit var loginPanel: View
     private lateinit var loginUser: android.widget.EditText
@@ -151,15 +156,6 @@ class MainActivity : AppCompatActivity() {
     private fun buildListUrl(page: Int): String {
         val base = when (listSource) {
             "favs" -> "https://forocoches.com/foro/subscription.php"
-            "mine" -> {
-                // Página 1: búsqueda estándar de vBulletin "hilos iniciados por mí".
-                // Siguientes: la URL con searchid que devolvió la búsqueda (finalUrl).
-                if (page > 1 && myThreadsBase.isNotEmpty()) myThreadsBase
-                else {
-                    val uid = Regex("u=(\\d+)").find(menuLinks?.profile ?: "")?.groupValues?.get(1) ?: ""
-                    "https://forocoches.com/foro/search.php?do=finduser&u=$uid&starteronly=1"
-                }
-            }
             else -> "https://forocoches.com/foro/forumdisplay.php?f=$currentForumId"
         }
         if (page <= 1) return base
@@ -189,6 +185,7 @@ class MainActivity : AppCompatActivity() {
             R.id.nav_home to R.drawable.ic_nav_home,
             R.id.nav_favs to R.drawable.ic_nav_star,
             R.id.nav_mythreads to R.drawable.ic_nav_threads,
+            R.id.nav_participated to R.drawable.ic_nav_participated,
             R.id.nav_notif to R.drawable.ic_nav_bell,
             R.id.nav_quotes to R.drawable.ic_nav_quote,
             R.id.nav_profile to R.drawable.ic_nav_person
@@ -197,6 +194,7 @@ class MainActivity : AppCompatActivity() {
             R.id.nav_home to "Inicio",
             R.id.nav_favs to "Favoritos",
             R.id.nav_mythreads to "Mis hilos",
+            R.id.nav_participated to "Participados",
             R.id.nav_notif to "Menciones",
             R.id.nav_quotes to "Citas",
             R.id.nav_profile to "Perfil"
@@ -219,6 +217,7 @@ class MainActivity : AppCompatActivity() {
             R.id.nav_home -> { showHomeList(); if (reselect) requestThreadList(1) }
             R.id.nav_favs -> if (isLoggedIn()) showFavsList() else showLogin()
             R.id.nav_mythreads -> if (isLoggedIn()) showMyThreadsList() else showLogin()
+            R.id.nav_participated -> if (isLoggedIn()) showParticipatedList() else showLogin()
             R.id.nav_notif -> if (isLoggedIn()) showNotices("mentions") else showLogin()
             R.id.nav_quotes -> if (isLoggedIn()) showNotices("quotes") else showLogin()
             R.id.nav_profile -> if (isLoggedIn()) showProfile() else showLogin()
@@ -240,6 +239,7 @@ class MainActivity : AppCompatActivity() {
     private fun navIdForList(): Int = when (listSource) {
         "favs" -> R.id.nav_favs
         "mine" -> R.id.nav_mythreads
+        "participated" -> R.id.nav_participated
         else -> R.id.nav_home
     }
 
@@ -274,9 +274,8 @@ class MainActivity : AppCompatActivity() {
         requestThreadList(1)
     }
 
-    /** Mis hilos: los iniciados por el usuario, vía la búsqueda estándar de vBulletin. */
+    /** Mis hilos: los iniciados por el usuario. El motor resuelve el UID real (finduser). */
     private fun showMyThreadsList() {
-        if (menuLinks?.profile == null) { toast("Conectando con el foro…"); return }
         listSource = "mine"
         myThreadsBase = ""
         forumTabs.visibility = View.GONE
@@ -286,6 +285,20 @@ class MainActivity : AppCompatActivity() {
         showNative()
         fabNewThread.visibility = View.GONE
         setSelectedNav(R.id.nav_mythreads)
+        requestThreadList(1)
+    }
+
+    /** Participados: hilos donde el usuario ha posteado (búsqueda por usuario, showposts=0). */
+    private fun showParticipatedList() {
+        listSource = "participated"
+        myThreadsBase = ""
+        forumTabs.visibility = View.GONE
+        nativeHeader.text = "Participados"
+        listLoaded = false
+        adapter.submit(emptyList())
+        showNative()
+        fabNewThread.visibility = View.GONE
+        setSelectedNav(R.id.nav_participated)
         requestThreadList(1)
     }
 
@@ -367,6 +380,34 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         } catch (_: Exception) { }
+    }
+
+    // ── Opciones ─────────────────────────────────────────────────────────────
+
+    private fun showOptions() {
+        isOptionsVisible = true
+        isNoticesVisible = false; isProfileVisible = false
+        options.bind()
+        optionsPanel.visibility = View.VISIBLE
+        nativePanel.visibility = View.GONE
+        threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
+        swipeRefresh.visibility = View.INVISIBLE
+        bottomNav.visibility = View.GONE   // tiene inputs de texto: teclado a pantalla limpia
+    }
+
+    private fun hideOptions() {
+        isOptionsVisible = false
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(optionsPanel.windowToken, 0)
+        optionsPanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
+        // Vuelve a la lista (donde está el engranaje).
+        showNative()
+        setSelectedNav(navIdForList())
     }
 
     private fun doLogout() {
@@ -540,6 +581,27 @@ class MainActivity : AppCompatActivity() {
             if (!isLoggedIn()) { showLogin(); return@setOnClickListener }
             openNewThread()
         }
+
+        // Opciones nativas (fuente, avatar, filtros ignorados/keywords).
+        optionsPanel = findViewById(R.id.options_panel)
+        options = OptionsController(
+            panel = optionsPanel,
+            ignoreRepo = repo,
+            keywordRepo = keywordRepo,
+            prefs = getSharedPreferences(PREFS, MODE_PRIVATE),
+            onFontChanged = { postAdapter.postTextSp = OptionsController.fontSp(getSharedPreferences(PREFS, MODE_PRIVATE)) },
+            onListsChanged = {
+                // Re-aplica filtros al vuelo: recarga lista y, si hay, el hilo abierto.
+                listLoaded = false
+                loadingPage = false
+                requestThreadList(1)
+                if (currentThreadUrl.isNotEmpty()) reloadCurrentThread()
+            },
+            openUrl = { url -> openWeb(url) }
+        )
+        postAdapter.postTextSp = OptionsController.fontSp(getSharedPreferences(PREFS, MODE_PRIVATE))
+        findViewById<View>(R.id.native_options).setOnClickListener { showOptions() }
+        findViewById<View>(R.id.options_back).setOnClickListener { hideOptions() }
         findViewById<View>(R.id.profile_logout).setOnClickListener { doLogout() }
         findViewById<View>(R.id.profile_open_web).setOnClickListener {
             val u = menuLinks?.profile ?: return@setOnClickListener
@@ -629,6 +691,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.fmt_img).setOnClickListener { bbcode.askImg() }
         findViewById<View>(R.id.fmt_url).setOnClickListener { bbcode.askUrl() }
         findViewById<View>(R.id.fmt_embed).setOnClickListener { bbcode.pickEmbed() }
+        findViewById<View>(R.id.fmt_quote).setOnClickListener { bbcode.wrap("[QUOTE]", "[/QUOTE]") }
+        findViewById<View>(R.id.fmt_spoiler).setOnClickListener { bbcode.wrap("[SPOILER]", "[/SPOILER]") }
         findViewById<View>(R.id.fmt_smiley).setOnClickListener { openSmileyPicker() }
 
         postAdapter = PostAdapter(
@@ -1303,6 +1367,7 @@ class MainActivity : AppCompatActivity() {
         isLoginVisible = false
         isNoticesVisible = false
         isProfileVisible = false
+        isOptionsVisible = false
         cameFromThread = false
         nativePanel.visibility = View.VISIBLE
         threadPanel.visibility = View.GONE
@@ -1310,6 +1375,7 @@ class MainActivity : AppCompatActivity() {
         loginPanel.visibility = View.GONE
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
+        optionsPanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
         // FAB de crear hilo: solo en un subforo real y con sesión.
         fabNewThread.visibility = if (listSource == "home" && isLoggedIn()) View.VISIBLE else View.GONE
@@ -1324,12 +1390,14 @@ class MainActivity : AppCompatActivity() {
         isLoginVisible = false
         isNoticesVisible = false
         isProfileVisible = false
+        isOptionsVisible = false
         threadPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
+        optionsPanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
         swipeRefresh.visibility = View.INVISIBLE
     }
@@ -1340,6 +1408,7 @@ class MainActivity : AppCompatActivity() {
         isLoginVisible = false
         isNoticesVisible = false
         isProfileVisible = false
+        isOptionsVisible = false
         swipeRefresh.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
@@ -1347,6 +1416,7 @@ class MainActivity : AppCompatActivity() {
         loginPanel.visibility = View.GONE
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
+        optionsPanel.visibility = View.GONE
         bottomNav.visibility = View.VISIBLE
     }
 
@@ -1368,9 +1438,18 @@ class MainActivity : AppCompatActivity() {
         loadingPage = true
         if (page <= 1 && !listRefresh.isRefreshing) listLoading.visibility = View.VISIBLE
         listEmpty.visibility = View.GONE
-        webView.evaluateJavascript(
-            "window.fcLoadThreadList&&fcLoadThreadList('${buildListUrl(page)}')", null
-        )
+        val js = when (listSource) {
+            // Mis hilos / Participados: el motor resuelve el UID/usuario real (el DOM vivo
+            // trae u=0) y busca; para paginar reusa la URL con searchid (myThreadsBase).
+            "mine", "participated" -> {
+                val mode = if (listSource == "mine") "started" else "participated"
+                val pageUrl = if (page > 1 && myThreadsBase.isNotEmpty())
+                    myThreadsBase + "&page=$page" else ""
+                "window.fcLoadOwnThreads&&fcLoadOwnThreads('$mode','${jsEscape(pageUrl)}')"
+            }
+            else -> "window.fcLoadThreadList&&fcLoadThreadList('${buildListUrl(page)}')"
+        }
+        webView.evaluateJavascript(js, null)
     }
 
     private fun onThreadListJson(json: String) {
@@ -1386,7 +1465,7 @@ class MainActivity : AppCompatActivity() {
         updateBadges(parsed.pmCount, parsed.quotesCount, parsed.mentionsCount)
         // Mis hilos: la búsqueda redirige a search.php?searchid=N — se guarda como base
         // de paginación (sin su posible page=).
-        if (listSource == "mine" && parsed.finalUrl.contains("searchid=")) {
+        if ((listSource == "mine" || listSource == "participated") && parsed.finalUrl.contains("searchid=")) {
             myThreadsBase = parsed.finalUrl.replace(Regex("[&?]page=\\d+"), "")
         }
 
@@ -1542,6 +1621,10 @@ class MainActivity : AppCompatActivity() {
         }
         if (isReplyVisible) {
             hideReply()
+            return
+        }
+        if (isOptionsVisible) {
+            hideOptions()
             return
         }
         if (isNoticesVisible || isProfileVisible) {
