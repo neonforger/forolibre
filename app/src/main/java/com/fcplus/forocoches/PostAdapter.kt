@@ -178,6 +178,19 @@ class PostAdapter(
         if (added > 0) notifyItemRangeInserted(items.size - added, added)
     }
 
+    /**
+     * Inserta una página ANTERIOR al principio (scroll hacia arriba tras un salto).
+     * Devuelve cuántos entró: quien llama lo necesita para reanclar el scroll y que la
+     * pantalla no pegue un salto al meter contenido por encima.
+     */
+    fun prepend(list: List<PostItem>): Int {
+        val nuevos = list.filter { seenPids.add(it.pid) }
+        if (nuevos.isEmpty()) return 0
+        items.addAll(0, nuevos)
+        notifyItemRangeInserted(0, nuevos.size)
+        return nuevos.size
+    }
+
     fun clear() = submit(emptyList())
 
     /** Página del post en la posición dada (para el indicador de página al hacer scroll). */

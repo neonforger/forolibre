@@ -133,6 +133,8 @@ class MainActivity : AppCompatActivity() {
     private var threadPage = 1
     private var threadPageCount = 1
     private var replaceOnLoad = false      // salto de página: la respuesta REEMPLAZA la lista
+    private var prependOnLoad = false      // página anterior: la respuesta va DELANTE
+    private var firstLoadedPage = 1        // primera página en memoria (threadPage = la última)
     private var loadingThreadPage = false
     private var isThreadVisible = false
     private var cameFromThread = false     // para que atrás desde la web vuelva al hilo
@@ -718,6 +720,11 @@ class MainActivity : AppCompatActivity() {
                 // en ambas direcciones), no según lo último cargado.
                 val first = lm.findFirstVisibleItemPosition()
                 if (first >= 0) showThreadPageInfo(postAdapter.pageAt(first))
+                // Hacia arriba: traer la página anterior si la hay (tras un salto).
+                if (dy < 0 && !loadingThreadPage && firstLoadedPage > 1 && first <= 3) {
+                    requestPrevThreadPage()
+                    return
+                }
                 if (dy <= 0 || loadingThreadPage) return
                 if (threadPage >= threadPageCount) return
                 val last = lm.findLastVisibleItemPosition()
@@ -1242,8 +1249,24 @@ class MainActivity : AppCompatActivity() {
     private fun jumpToThreadPage(page: Int) {
         val p = page.coerceIn(1, threadPageCount)
         loadingThreadPage = false          // un salto siempre manda sobre la carga en curso
+        prependOnLoad = false
         replaceOnLoad = true
         requestThreadPage(p)
+    }
+
+    /**
+     * Página ANTERIOR al llegar arriba del todo. Sin esto, tras saltar a la 800 la única
+     * forma de ver la 799 era reabrir el panel: el hilo era infinito hacia abajo pero
+     * tenía un muro hacia arriba.
+     */
+    private fun requestPrevThreadPage() {
+        if (!engineReady || loadingThreadPage || firstLoadedPage <= 1) return
+        if (currentThreadUrl.isEmpty()) return
+        loadingThreadPage = true
+        prependOnLoad = true
+        webView.evaluateJavascript(
+            "window.fcLoadThread&&fcLoadThread('${threadPageUrl(firstLoadedPage - 1)}')", null
+        )
     }
 
     // OJO: NADA de goto=lastpost / goto=newpost. Verificado por CDP que FC los IGNORA:
@@ -1288,7 +1311,9 @@ class MainActivity : AppCompatActivity() {
         currentThreadTid = Regex("[?&]t=(\\d+)").find(url)?.groupValues?.get(1) ?: ""
         threadPage = 1
         threadPageCount = 1
+        firstLoadedPage = 1
         replaceOnLoad = false
+        prependOnLoad = false
         postAdapter.clear()
         // Respuesta limpia por hilo: sin borrador ni citas heredadas.
         replyInput.setText("")
@@ -1328,12 +1353,22 @@ class MainActivity : AppCompatActivity() {
         if (currentThreadTid.isEmpty() && t.tid.isNotEmpty()) currentThreadTid = t.tid
         updateBadges(t.pmCount, t.quotesCount, t.mentionsCount)
         if (t.title.isNotEmpty()) threadTitle.text = t.title
-        threadPage = t.page
         threadPageCount = t.pageCount
-        // El indicador refleja la página VISIBLE: al cargar la 1 es la 1; en appends de
-        // scroll no se pisa (lo actualiza el listener de scroll con lo que se ve). Tras
-        // un salto sí se fija, porque la página visible pasa a ser la de destino.
-        if (replaceOnLoad || t.page <= 1) showThreadPageInfo(t.page)
+        // threadPage = última página en memoria; firstLoadedPage = la primera. Al insertar
+        // hacia atrás solo se mueve la primera (si se pisara threadPage, el scroll hacia
+        // abajo volvería a pedir páginas ya cargadas).
+        if (prependOnLoad) {
+            firstLoadedPage = t.page
+        } else {
+            threadPage = t.page
+            // El indicador refleja la página VISIBLE: al cargar la 1 es la 1; en appends de
+            // scroll no se pisa (lo actualiza el listener de scroll con lo que se ve). Tras
+            // un salto sí se fija, porque la página visible pasa a ser la de destino.
+            if (replaceOnLoad || t.page <= 1) {
+                firstLoadedPage = t.page
+                showThreadPageInfo(t.page)
+            }
+        }
 
         // Filtro de ignorados, mismas reglas que content.js: autor ignorado, post
         // colapsado por FC ("oculto porque") o post que cita a un ignorado.
@@ -1346,16 +1381,34 @@ class MainActivity : AppCompatActivity() {
             true
         }
         val jumped = replaceOnLoad
+        val prepended = prependOnLoad
         replaceOnLoad = false
-        if (jumped || t.page <= 1) {
-            postAdapter.submit(visible)
-            if (jumped) postList.scrollToPosition(0)
-        } else postAdapter.append(visible)
+        prependOnLoad = false
+        when {
+            // OJO al orden: una página anterior puede ser la 1, y la rama de abajo
+            // (t.page <= 1) la trataría como carga inicial y BORRARÍA lo ya leído.
+            prepended -> {
+                // Reanclaje: se guarda el ítem visible y su desplazamiento ANTES de meter
+                // contenido por encima, y se vuelve a él después. Sin esto la pantalla
+                // pega un salto en cuanto entra la página anterior.
+                val lm = postList.layoutManager as LinearLayoutManager
+                val anchorPos = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
+                val anchorOff = lm.findViewByPosition(anchorPos)?.top ?: 0
+                val added = postAdapter.prepend(visible)
+                if (added > 0) lm.scrollToPositionWithOffset(anchorPos + added, anchorOff)
+            }
+            jumped || t.page <= 1 -> {
+                postAdapter.submit(visible)
+                if (jumped) postList.scrollToPosition(0)
+            }
+            else -> postAdapter.append(visible)
+        }
     }
 
     private fun onThreadError(reason: String) {
         loadingThreadPage = false
         replaceOnLoad = false
+        prependOnLoad = false
         threadLoading.visibility = View.GONE
         when {
             reason == "cloudflare" -> {
