@@ -555,8 +555,12 @@
   };
 
   // Carga el BBCode actual de un post para precargar el editor al editar.
+  // OJO wysiwyg=0 EN LA URL: sin él FC sirve el form en modo editor visual (wysiwyg=1) y
+  // el textarea trae HTML (<b>, <br>, <img> de smilies), no BBCode. Como al guardar
+  // mandamos wysiwyg=0 ("esto es BBCode"), vBulletin escapaba ese HTML y el post salía
+  // con todas las etiquetas literales (bug real que hubo). FC respeta el parámetro.
   window.fcLoadPostForEdit = function (pid) {
-    fetch('https://forocoches.com/foro/editpost.php?do=editpost&p=' + pid, { credentials: 'same-origin' })
+    fetch('https://forocoches.com/foro/editpost.php?do=editpost&wysiwyg=0&p=' + pid, { credentials: 'same-origin' })
       .then(function (r) { return r.text(); })
       .then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
@@ -578,7 +582,9 @@
   // Guarda la edición de un post (do=updatepost). Éxito = vuelve al hilo.
   window.fcEditPost = function (pid, message, subject) {
     var base = 'https://forocoches.com/foro/editpost.php';
-    fetch(base + '?do=editpost&p=' + pid, { credentials: 'same-origin' })
+    // wysiwyg=0 también aquí: el form del que copiamos los campos ocultos debe estar en el
+    // MISMO modo (BBCode) con el que enviamos.
+    fetch(base + '?do=editpost&wysiwyg=0&p=' + pid, { credentials: 'same-origin' })
       .then(function (r) { return r.text(); })
       .then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
