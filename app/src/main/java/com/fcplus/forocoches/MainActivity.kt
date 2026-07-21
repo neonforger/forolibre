@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebView
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -131,6 +132,7 @@ class MainActivity : AppCompatActivity() {
     private var currentThreadTid = ""      // t= del hilo abierto (para responder/citar)
     private var threadPage = 1
     private var threadPageCount = 1
+    private var replaceOnLoad = false      // salto de página: la respuesta REEMPLAZA la lista
     private var loadingThreadPage = false
     private var isThreadVisible = false
     private var cameFromThread = false     // para que atrás desde la web vuelva al hilo
@@ -457,6 +459,7 @@ class MainActivity : AppCompatActivity() {
         threadLoading = findViewById(R.id.thread_loading)
         threadTitle = findViewById(R.id.thread_title)
         threadPageInfo = findViewById(R.id.thread_page_info)
+        threadPageInfo.setOnClickListener { if (threadPageCount > 1) showPageJumpSheet() }
         nativeHeader = findViewById(R.id.native_header)
         noticesPanel = findViewById(R.id.notices_panel)
         noticesHeader = findViewById(R.id.notices_header)
@@ -776,10 +779,12 @@ class MainActivity : AppCompatActivity() {
         restrictedView.visibility = View.VISIBLE
     }
 
-    /** Indicador "Página X de Y" de la cabecera del hilo. */
+    /** Indicador "Página X de Y" de la cabecera; con varias páginas es el botón de salto. */
     private fun showThreadPageInfo(visiblePage: Int) {
-        threadPageInfo.text =
-            if (threadPageCount > 1) "Página $visiblePage de $threadPageCount" else ""
+        val multi = threadPageCount > 1
+        threadPageInfo.text = if (multi) "Página $visiblePage de $threadPageCount  ▾" else ""
+        threadPageInfo.isClickable = multi
+        threadPageInfo.setTextColor(if (multi) 0xFF757575.toInt() else 0xFF9E9E9E.toInt())
     }
 
     // ── Panel de respuesta nativo (Fase 3) ───────────────────────────────────
@@ -1229,11 +1234,61 @@ class MainActivity : AppCompatActivity() {
     private fun threadPageUrl(page: Int): String =
         if (page > 1) "$currentThreadUrl&page=$page" else currentThreadUrl
 
+    /**
+     * Salto de página: carga esa página REEMPLAZANDO la lista, nunca trayendo las
+     * intermedias (en un hilo de 1000 páginas eso sería suicida). A partir de ahí el
+     * scroll infinito sigue hacia delante con normalidad desde donde se ha caído.
+     */
+    private fun jumpToThreadPage(page: Int) {
+        val p = page.coerceIn(1, threadPageCount)
+        loadingThreadPage = false          // un salto siempre manda sobre la carga en curso
+        replaceOnLoad = true
+        requestThreadPage(p)
+    }
+
+    // OJO: NADA de goto=lastpost / goto=newpost. Verificado por CDP que FC los IGNORA:
+    // devuelve 200 con la PÁGINA 1 (sin redirección y sin <link rel="next/prev">), así que
+    // el salto parecía no hacer nada. La última página se pide por page=threadPageCount,
+    // que sí funciona. "Primer mensaje sin leer" queda fuera hasta encontrar señal fiable.
+
+    /** Hoja de salto: se abre tocando el "Página X de Y" de la cabecera. */
+    private fun showPageJumpSheet() {
+        if (currentThreadTid.isEmpty()) return
+        val view = layoutInflater.inflate(R.layout.sheet_thread_pages, null)
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        sheet.setContentView(view)
+        // Sin esto la fila del "Ir a página N" queda DEBAJO de la barra de navegación
+        // del sistema y es inalcanzable (el sheet se dibuja a pantalla completa).
+        val basePad = view.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight,
+                basePad + maxOf(bars.bottom, ime.bottom))
+            insets
+        }
+        view.findViewById<TextView>(R.id.jump_range).text =
+            if (threadPageCount > 1) "Este hilo tiene $threadPageCount páginas"
+            else "Este hilo tiene una sola página"
+        val input = view.findViewById<EditText>(R.id.jump_input)
+        fun go(block: () -> Unit) { sheet.dismiss(); block() }
+        view.findViewById<View>(R.id.jump_last).setOnClickListener { go { jumpToThreadPage(threadPageCount) } }
+        view.findViewById<View>(R.id.jump_first).setOnClickListener { go { jumpToThreadPage(1) } }
+        view.findViewById<View>(R.id.jump_go).setOnClickListener {
+            val n = input.text.toString().trim().toIntOrNull()
+            if (n == null || n < 1 || n > threadPageCount) {
+                toast("Introduce una página entre 1 y $threadPageCount")
+            } else go { jumpToThreadPage(n) }
+        }
+        sheet.show()
+    }
+
     private fun openThreadNative(url: String, title: String) {
         currentThreadUrl = url.substringBefore("&page=")
         currentThreadTid = Regex("[?&]t=(\\d+)").find(url)?.groupValues?.get(1) ?: ""
         threadPage = 1
         threadPageCount = 1
+        replaceOnLoad = false
         postAdapter.clear()
         // Respuesta limpia por hilo: sin borrador ni citas heredadas.
         replyInput.setText("")
@@ -1276,8 +1331,9 @@ class MainActivity : AppCompatActivity() {
         threadPage = t.page
         threadPageCount = t.pageCount
         // El indicador refleja la página VISIBLE: al cargar la 1 es la 1; en appends de
-        // scroll no se pisa (lo actualiza el listener de scroll con lo que se ve).
-        if (t.page <= 1) showThreadPageInfo(1)
+        // scroll no se pisa (lo actualiza el listener de scroll con lo que se ve). Tras
+        // un salto sí se fija, porque la página visible pasa a ser la de destino.
+        if (replaceOnLoad || t.page <= 1) showThreadPageInfo(t.page)
 
         // Filtro de ignorados, mismas reglas que content.js: autor ignorado, post
         // colapsado por FC ("oculto porque") o post que cita a un ignorado.
@@ -1289,11 +1345,17 @@ class MainActivity : AppCompatActivity() {
             if (ignored.any { body.contains("<b>$it dijo:</b>") }) return@filter false
             true
         }
-        if (t.page <= 1) postAdapter.submit(visible) else postAdapter.append(visible)
+        val jumped = replaceOnLoad
+        replaceOnLoad = false
+        if (jumped || t.page <= 1) {
+            postAdapter.submit(visible)
+            if (jumped) postList.scrollToPosition(0)
+        } else postAdapter.append(visible)
     }
 
     private fun onThreadError(reason: String) {
         loadingThreadPage = false
+        replaceOnLoad = false
         threadLoading.visibility = View.GONE
         when {
             reason == "cloudflare" -> {
