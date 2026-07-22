@@ -9,6 +9,7 @@ import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.EditText
+import androidx.appcompat.widget.SwitchCompat
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -137,6 +138,8 @@ class MainActivity : AppCompatActivity() {
     private var firstLoadedPage = 1        // primera página en memoria (threadPage = la última)
     private var pendingScrollPid = ""      // post al que saltar tras cargar (citas, deep links)
     private var pendingDeepLink = ""       // deep link recibido antes de tener motor listo
+    private var searchQuery = ""           // término del buscador (listSource = "search")
+    private var searchTitleOnly = true
     private var loadingThreadPage = false
     private var isThreadVisible = false
     private var cameFromThread = false     // para que atrás desde la web vuelva al hilo
@@ -246,7 +249,7 @@ class MainActivity : AppCompatActivity() {
         "favs" -> R.id.nav_favs
         "mine" -> R.id.nav_mythreads
         "participated" -> R.id.nav_participated
-        else -> R.id.nav_home
+        else -> R.id.nav_home   // "search" incluido: la búsqueda cuelga de Inicio
     }
 
     // ── Secciones nativas (Bloque B) ─────────────────────────────────────────
@@ -291,6 +294,48 @@ class MainActivity : AppCompatActivity() {
         showNative()
         fabNewThread.visibility = View.GONE
         setSelectedNav(R.id.nav_mythreads)
+        requestThreadList(1)
+    }
+
+    /** Buscador: pide el término y enseña los resultados en la MISMA lista nativa. */
+    private fun showSearchSheet() {
+        if (!isLoggedIn()) { toast("La búsqueda de ForoCoches requiere iniciar sesión"); showLogin(); return }
+        val view = layoutInflater.inflate(R.layout.sheet_search, null)
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        sheet.setContentView(view)
+        val basePad = view.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, basePad + maxOf(bars.bottom, ime.bottom))
+            insets
+        }
+        val input = view.findViewById<EditText>(R.id.search_input)
+        val onlyTitles = view.findViewById<SwitchCompat>(R.id.search_titles_only)
+        input.setText(searchQuery)
+        onlyTitles.isChecked = searchTitleOnly
+        view.findViewById<View>(R.id.search_go).setOnClickListener {
+            val q = input.text.toString().trim()
+            if (q.length < 3) { toast("Escribe al menos 3 caracteres"); return@setOnClickListener }
+            searchQuery = q
+            searchTitleOnly = onlyTitles.isChecked
+            sheet.dismiss()
+            runSearch()
+        }
+        sheet.show()
+        input.requestFocus()
+    }
+
+    private fun runSearch() {
+        listSource = "search"
+        myThreadsBase = ""
+        forumTabs.visibility = View.GONE
+        nativeHeader.text = "\"$searchQuery\""
+        listLoaded = false
+        adapter.submit(emptyList())
+        showNative()
+        fabNewThread.visibility = View.GONE
+        setSelectedNav(R.id.nav_home)
         requestThreadList(1)
     }
 
@@ -614,6 +659,7 @@ class MainActivity : AppCompatActivity() {
         )
         postAdapter.postTextSp = OptionsController.fontSp(getSharedPreferences(PREFS, MODE_PRIVATE))
         findViewById<View>(R.id.native_options).setOnClickListener { showOptions() }
+        findViewById<View>(R.id.native_search).setOnClickListener { showSearchSheet() }
         findViewById<View>(R.id.options_back).setOnClickListener { hideOptions() }
         findViewById<View>(R.id.profile_logout).setOnClickListener { doLogout() }
         findViewById<View>(R.id.profile_open_web).setOnClickListener {
@@ -1603,6 +1649,8 @@ class MainActivity : AppCompatActivity() {
         val js = when (listSource) {
             // Mis hilos / Participados: el motor resuelve el UID/usuario real (el DOM vivo
             // trae u=0) y busca; para paginar reusa la URL con searchid (myThreadsBase).
+            "search" -> "window.fcSearch&&fcSearch('${jsEscape(searchQuery)}',${searchTitleOnly}," +
+                "'${jsEscape(if (page > 1 && myThreadsBase.isNotEmpty()) myThreadsBase + "&page=$page" else "")}')"
             "mine", "participated" -> {
                 val mode = if (listSource == "mine") "started" else "participated"
                 val pageUrl = if (page > 1 && myThreadsBase.isNotEmpty())
@@ -1627,7 +1675,7 @@ class MainActivity : AppCompatActivity() {
         updateBadges(parsed.pmCount, parsed.quotesCount, parsed.mentionsCount)
         // Mis hilos: la búsqueda redirige a search.php?searchid=N — se guarda como base
         // de paginación (sin su posible page=).
-        if ((listSource == "mine" || listSource == "participated") && parsed.finalUrl.contains("searchid=")) {
+        if ((listSource == "mine" || listSource == "participated" || listSource == "search") && parsed.finalUrl.contains("searchid=")) {
             myThreadsBase = parsed.finalUrl.replace(Regex("[&?]page=\\d+"), "")
         }
 

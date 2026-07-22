@@ -835,6 +835,52 @@
       .catch(function (e) { AndroidShell.onListError(String(e)); });
   };
 
+  // Buscador. Reusa la MISMA búsqueda de vBulletin que Mis hilos/Participados: POST a
+  // search.php?do=process con showposts=0 (resultados agrupados por HILO, no posts sueltos)
+  // y el mismo parseSearchDoc. OJO: FC exige sesión para buscar — de invitado el token es
+  // 'guest', no existe el formulario y devuelve la home.
+  window.fcSearch = function (query, titleOnly, pageUrl) {
+    function emit(doc, finalUrl) {
+      if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+        AndroidShell.onListError('cloudflare'); return;
+      }
+      var threads = parseSearchDoc(doc);
+      if (!threads.length) { AndroidShell.onListError('empty'); return; }
+      AndroidShell.onThreadList(JSON.stringify({
+        url: finalUrl, finalUrl: finalUrl, menu: menuLinks(),
+        counts: menuCounts(doc), threads: threads
+      }));
+    }
+    if (pageUrl) {
+      fetch(pageUrl, { credentials: 'same-origin' })
+        .then(function (r) { return r.text().then(function (h) { return { h: h, u: r.url || pageUrl }; }); })
+        .then(function (res) { emit(new DOMParser().parseFromString(res.h, 'text/html'), res.u); })
+        .catch(function (e) { AndroidShell.onListError(String(e)); });
+      return;
+    }
+    fetch('https://forocoches.com/foro/search.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var sdoc = new DOMParser().parseFromString(html, 'text/html');
+        var tokEl = sdoc.querySelector('input[name="securitytoken"]');
+        var token = tokEl ? tokEl.value : '';
+        if (!token || token === 'guest') { AndroidShell.onListError('login'); return null; }
+        var body = new URLSearchParams();
+        body.set('do', 'process'); body.set('securitytoken', token);
+        body.set('query', query); body.set('titleonly', titleOnly ? '1' : '0');
+        body.set('showposts', '0'); body.set('dosearch', 'Buscar');
+        return fetch('https://forocoches.com/foro/search.php?do=process', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+        }).then(function (r) { return r.text().then(function (h) { return { h: h, u: r.url }; }); });
+      })
+      .then(function (res) {
+        if (!res) return;
+        emit(new DOMParser().parseFromString(res.h, 'text/html'), res.u);
+      })
+      .catch(function (e) { AndroidShell.onListError(String(e)); });
+  };
+
   // Mis hilos ('started') y Participados ('participated'). El UID real NO está en el DOM
   // vivo (FC lo enmascara a u=0), así que se resuelve del HTML recién traído. 'started'
   // usa la búsqueda finduser (hilos iniciados); 'participated' usa la búsqueda por nombre
