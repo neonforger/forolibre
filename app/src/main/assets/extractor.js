@@ -909,6 +909,30 @@
       .catch(function (e) { AndroidShell.onPmData(JSON.stringify({ view: 'send', ok: false, error: String(e) })); });
   };
 
+  // Perfil de OTRO usuario (mención tocada). El enlace de mención SÍ trae el uid real
+  // (member.php?u=NNN), a diferencia de los autores de post (enmascarados a u=0). Se
+  // extrae nombre + avatar para pintar un perfil nativo (la regla de oro prohíbe la web).
+  window.fcLoadMember = function (uid) {
+    fetch('https://forocoches.com/foro/member.php?u=' + uid + '&_fp=' + Date.now(), { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onMemberData(JSON.stringify({ uid: uid, error: 'cloudflare' })); return;
+        }
+        var username = (doc.title || '').replace(/^Forocoches\s*-\s*Ver Perfil:\s*/i, '').trim();
+        var av = doc.querySelector('img[src*="customavatars"], img[src*="image.php?u"]');
+        var avatar = '';
+        if (av) { try { avatar = new URL(av.getAttribute('src'), 'https://forocoches.com/foro/').href; } catch (e) {} }
+        var pm = doc.querySelector('a[href*="private.php?do=newpm"]');
+        var newpm = pm ? pm.getAttribute('href') : ('private.php?do=newpm&u=' + uid);
+        AndroidShell.onMemberData(JSON.stringify({
+          uid: uid, username: username, avatar: avatar, newpmUrl: newpm
+        }));
+      })
+      .catch(function (e) { AndroidShell.onMemberData(JSON.stringify({ uid: uid, error: String(e) })); });
+  };
+
   // ── Login desde UI nativa (Fase 3) ─────────────────────────────────────────
   // Mismo principio que fcSubmitReply: traemos el form REAL de login de FC, copiamos
   // sus campos (securitytoken incluido) y solo rellenamos usuario y contraseña. El

@@ -1119,6 +1119,114 @@
             </ScrollView>
         </LinearLayout>
 
+        <!-- Capa PERFIL DE OTRO USUARIO (mención tocada): nativa, no la web de FC. -->
+        <LinearLayout
+            android:id="@+id/member_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#FFFFFF"
+                android:elevation="2dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp">
+
+                <TextView
+                    android:id="@+id/member_back"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="←"
+                    android:textSize="20sp"
+                    android:textColor="#616161"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Volver" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="Perfil"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="#1A1A1A" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingStart="32dp"
+                android:paddingEnd="32dp">
+
+                <ImageView
+                    android:id="@+id/member_avatar"
+                    android:layout_width="96dp"
+                    android:layout_height="96dp"
+                    android:layout_marginTop="48dp"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@+id/member_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="#1A1A1A" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Usuario de ForoCoches"
+                    android:textSize="13sp"
+                    android:textColor="#9E9E9E" />
+
+                <TextView
+                    android:id="@+id/member_pm"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="36dp"
+                    android:paddingTop="14dp"
+                    android:paddingBottom="14dp"
+                    android:gravity="center"
+                    android:text="Enviar mensaje privado"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:background="#C8102E" />
+
+                <TextView
+                    android:id="@+id/member_open_web"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="12dp"
+                    android:gravity="center"
+                    android:text="Ver perfil completo (navegador)"
+                    android:textSize="14sp"
+                    android:textColor="#616161"
+                    android:background="?attr/selectableItemBackground" />
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- Capa LOGIN nativa (Fase 3): formulario propio. Las credenciales las envía
              fcLogin por el form real de FC (same-origin, cookies del WebView), pero el
              usuario nunca ve el foro por debajo. -->

@@ -135,6 +135,16 @@ class MainActivity : AppCompatActivity() {
     private var pmComposeMode = "new"      // new | reply
     private var sendingPm = false
 
+    // ── Perfil de otro usuario (mención tocada) ──
+    private lateinit var memberPanel: View
+    private lateinit var memberAvatar: android.widget.ImageView
+    private lateinit var memberName: TextView
+    private lateinit var memberPmBtn: TextView
+    private lateinit var memberOpenWeb: TextView
+    private var isMemberVisible = false
+    private var currentMemberUid = ""
+    private var currentMemberUsername = ""
+
     private lateinit var nativeHeader: TextView
     private lateinit var fabNewThread: View
     private var listSource = "home"        // home | favs | mine (qué alimenta la lista nativa)
@@ -419,15 +429,17 @@ class MainActivity : AppCompatActivity() {
         pmComposeSend.setOnClickListener { sendPm() }
     }
 
-    /** Oculta los tres paneles de MP (se llama al navegar a cualquier destino estándar). */
+    /** Oculta los paneles de MP y el de perfil (al navegar a cualquier destino estándar). */
     private fun hidePmPanels() {
         isPmVisible = false; isPmDetailVisible = false; isPmComposeVisible = false
+        isMemberVisible = false
         pmPanel.visibility = View.GONE
         pmDetailPanel.visibility = View.GONE
         pmComposePanel.visibility = View.GONE
+        memberPanel.visibility = View.GONE
     }
 
-    /** Oculta todas las capas estándar (para que un panel de MP quede solo en pantalla). */
+    /** Oculta todas las capas estándar (para que un panel de MP/perfil quede solo). */
     private fun hideAllStandardPanels() {
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
@@ -436,6 +448,8 @@ class MainActivity : AppCompatActivity() {
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
+        memberPanel.visibility = View.GONE
+        isMemberVisible = false
     }
 
     /** Bandeja de MPs nativa (la regla de oro prohíbe la capa web). */
@@ -581,6 +595,75 @@ class MainActivity : AppCompatActivity() {
                     toast(if (err.isNotEmpty()) err else "No se pudo enviar el mensaje")
                 }
             }
+        }
+    }
+
+    // ── Perfil de otro usuario (mención tocada) ───────────────────────────────
+
+    private fun configureMemberPanel() {
+        memberPanel = findViewById(R.id.member_panel)
+        memberAvatar = findViewById(R.id.member_avatar)
+        memberName = findViewById(R.id.member_name)
+        memberPmBtn = findViewById(R.id.member_pm)
+        memberOpenWeb = findViewById(R.id.member_open_web)
+        findViewById<View>(R.id.member_back).setOnClickListener { exitMemberProfile() }
+        memberPmBtn.setOnClickListener {
+            if (!isLoggedIn()) { toast("Inicia sesión para enviar mensajes"); showLogin(); return@setOnClickListener }
+            if (currentMemberUsername.isEmpty()) { toast("Perfil aún cargando…"); return@setOnClickListener }
+            showPmCompose("new", "", "")
+            pmComposeTo.setText(currentMemberUsername)
+            pmComposeSubject.requestFocus()
+        }
+        memberOpenWeb.setOnClickListener {
+            if (currentMemberUid.isNotEmpty())
+                openExternal("https://forocoches.com/foro/member.php?u=$currentMemberUid")
+        }
+    }
+
+    /** Muestra el perfil NATIVO de un usuario (la regla de oro prohíbe la web de FC). */
+    private fun showMemberProfile(uid: String) {
+        currentMemberUid = uid
+        currentMemberUsername = ""
+        // Ocultar todo primero; el flag isMemberVisible se pone AL FINAL (los helpers lo resetean).
+        hideAllStandardPanels()
+        pmPanel.visibility = View.GONE
+        pmDetailPanel.visibility = View.GONE
+        pmComposePanel.visibility = View.GONE
+        isPmVisible = false; isPmDetailVisible = false; isPmComposeVisible = false
+        isWebVisible = false; isThreadVisible = false; isReplyVisible = false
+        isLoginVisible = false; isNoticesVisible = false; isProfileVisible = false; isOptionsVisible = false
+        memberPanel.visibility = View.VISIBLE
+        isMemberVisible = true
+        bottomNav.visibility = View.VISIBLE
+        swipeRefresh.visibility = View.INVISIBLE
+        memberName.text = "…"
+        memberAvatar.setImageDrawable(null)
+        webView.evaluateJavascript("window.fcLoadMember&&fcLoadMember('${jsEscape(uid)}')", null)
+    }
+
+    private fun exitMemberProfile() {
+        isMemberVisible = false
+        memberPanel.visibility = View.GONE
+        // Las menciones se tocan dentro de un hilo: volver a él (los posts siguen en memoria).
+        if (currentThreadUrl.isNotEmpty() && postAdapter.itemCount > 0) showThread()
+        else { showNative(); setSelectedNav(navIdForList()) }
+    }
+
+    private fun onMemberData(json: String) {
+        if (!isMemberVisible) return
+        val o = try { org.json.JSONObject(json) } catch (_: Exception) { return }
+        if (o.optString("uid") != currentMemberUid) return
+        if (o.optString("error").isNotEmpty()) { memberName.text = "No se pudo cargar el perfil"; return }
+        val username = o.optString("username").trim()
+        currentMemberUsername = username
+        memberName.text = if (username.isNotEmpty()) "@$username" else "Perfil"
+        val avatar = o.optString("avatar").trim()
+        if (avatar.isNotEmpty() && !avatar.endsWith(".svg")) {
+            PostImages.get(avatar)?.let { memberAvatar.setImageBitmap(it) }
+                ?: PostImages.load(avatar) {
+                    if (isMemberVisible && currentMemberUid == o.optString("uid"))
+                        PostImages.get(avatar)?.let { memberAvatar.setImageBitmap(it) }
+                }
         }
     }
 
@@ -850,7 +933,8 @@ class MainActivity : AppCompatActivity() {
                 onLogout = { result -> runOnUiThread { onLogoutDone(result) } },
                 onThreadActionData = { json -> runOnUiThread { onThreadActionResult(json) } },
                 onEditLoadData = { json -> runOnUiThread { onEditLoad(json) } },
-                onPmDataResult = { json -> runOnUiThread { onPmData(json) } }
+                onPmDataResult = { json -> runOnUiThread { onPmData(json) } },
+                onMemberDataResult = { json -> runOnUiThread { onMemberData(json) } }
             ),
             "AndroidShell"
         )
@@ -901,6 +985,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.native_search).setOnClickListener { showSearchSheet() }
         findViewById<View>(R.id.options_back).setOnClickListener { hideOptions() }
         configurePmPanels()
+        configureMemberPanel()
         findViewById<View>(R.id.profile_logout).setOnClickListener { doLogout() }
         findViewById<View>(R.id.profile_pms).setOnClickListener { showPmInbox() }
         findViewById<View>(R.id.profile_open_web).setOnClickListener {
@@ -1824,7 +1909,12 @@ class MainActivity : AppCompatActivity() {
             }
             // MPs → bandeja nativa.
             url.contains("private.php") && TrustedOrigins.isTrustedForocochesUrl(url) -> showPmInbox()
-            // Resto de FC (member.php, misc.php, etc.): navegador externo, NO la capa web.
+            // Perfil de usuario (mención): el enlace trae el uid real → perfil NATIVO.
+            url.contains("member.php") && TrustedOrigins.isTrustedForocochesUrl(url) -> {
+                val uid = Regex("[?&]u=(\\d+)").find(url)?.groupValues?.get(1)
+                if (uid != null && uid != "0") showMemberProfile(uid) else openExternal(url)
+            }
+            // Resto de FC (misc.php, etc.): navegador externo, NO la capa web.
             else -> openExternal(url)
         }
     }
@@ -2192,6 +2282,10 @@ class MainActivity : AppCompatActivity() {
         }
         if (isOptionsVisible) {
             hideOptions()
+            return
+        }
+        if (isMemberVisible) {
+            exitMemberProfile()
             return
         }
         // Mensajes privados: compositor → detalle/bandeja; detalle → bandeja; bandeja → perfil.
