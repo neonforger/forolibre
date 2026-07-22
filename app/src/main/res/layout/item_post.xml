@@ -67,6 +67,15 @@
         android:lineSpacingExtra="2dp"
         android:textColorLink="#C8102E" />
 
+    <!-- Embeds interactivos (X/IG/TikTok/YouTube/vídeo): cada uno es una tarjeta que al
+         tocar carga el reproductor oficial en un WebView y reproduce inline. -->
+    <LinearLayout
+        android:id="@+id/post_embeds"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="4dp" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

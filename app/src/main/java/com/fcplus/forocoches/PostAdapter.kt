@@ -38,7 +38,8 @@ data class PostItem(
     val date: String,
     val html: String,
     val page: Int = 1,
-    val own: Boolean = false
+    val own: Boolean = false,
+    val embeds: List<EmbedSpec> = emptyList()
 )
 
 data class ThreadPayload(
@@ -71,7 +72,8 @@ fun parseThreadPayload(json: String): ThreadPayload? {
                     date = o.optString("date").trim(),
                     html = o.optString("html"),
                     page = pageNum,
-                    own = o.optBoolean("own", false)
+                    own = o.optBoolean("own", false),
+                    embeds = parseEmbeds(o.optJSONArray("embeds"))
                 )
             )
         }
@@ -148,7 +150,9 @@ class PostAdapter(
     // Única fuente de verdad de la selección: la mantiene MainActivity (replyQuotes).
     private val isSelected: (String) -> Boolean = { false },
     // Menú ⋮ de un post propio (editar / borrar). El View es el ancla del popup.
-    private val onMenu: (PostItem, View) -> Unit = { _, _ -> }
+    private val onMenu: (PostItem, View) -> Unit = { _, _ -> },
+    // Pantalla completa de vídeo de un embed: lo gestiona el Activity anfitrión.
+    private val onEmbedFullscreen: (View?, android.webkit.WebChromeClient.CustomViewCallback?) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<PostAdapter.Holder>() {
 
     private val items = ArrayList<PostItem>()
@@ -206,10 +210,17 @@ class PostAdapter(
         val author: TextView = v.findViewById(R.id.post_author)
         val date: TextView = v.findViewById(R.id.post_date)
         val content: TextView = v.findViewById(R.id.post_content)
+        val embeds: android.widget.LinearLayout = v.findViewById(R.id.post_embeds)
         val quote: TextView = v.findViewById(R.id.post_quote)
         val multiquote: TextView = v.findViewById(R.id.post_multiquote)
         val menu: TextView = v.findViewById(R.id.post_menu)
         var boundPid: String = ""
+    }
+
+    /** Libera los WebView de embeds cuando el post sale de pantalla (memoria). */
+    override fun onViewRecycled(h: Holder) {
+        for (i in 0 until h.embeds.childCount) (h.embeds.getChildAt(i) as? EmbedView)?.release()
+        h.embeds.removeAllViews()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -225,11 +236,30 @@ class PostAdapter(
         h.date.text = item.date
         bindAvatar(h, item)
         renderContent(h, item)
+        bindEmbeds(h, item)
         h.quote.setOnClickListener { onQuote(item) }
         paintMultiquote(h, isSelected(item.pid))
         h.multiquote.setOnClickListener { onMultiquoteToggle(item) }
         h.menu.visibility = if (item.own) View.VISIBLE else View.GONE
         h.menu.setOnClickListener { onMenu(item, h.menu) }
+    }
+
+    /** Monta un EmbedView por cada embed del post (tarjeta → toca → reproductor inline). */
+    private fun bindEmbeds(h: Holder, item: PostItem) {
+        for (i in 0 until h.embeds.childCount) (h.embeds.getChildAt(i) as? EmbedView)?.release()
+        h.embeds.removeAllViews()
+        if (item.embeds.isEmpty()) { h.embeds.visibility = View.GONE; return }
+        h.embeds.visibility = View.VISIBLE
+        for (spec in item.embeds) {
+            val ev = EmbedView(h.embeds.context)
+            ev.onFullscreen = onEmbedFullscreen
+            ev.layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            ev.bind(spec)
+            h.embeds.addView(ev)
+        }
     }
 
     /** Repinta los marcadores de "+"/"✓" tras cambiar la selección desde fuera. */
@@ -278,10 +308,9 @@ class PostAdapter(
                 ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, 2, 2) }
             }
         }
-        // Embeds sociales: tarjetas con datos ya cacheados se pintan enriquecidas; las
-        // pendientes disparan su fetch y re-renderizan este post al llegar (como PostImages).
-        val html = EmbedEnricher.apply(item.html) { if (h.boundPid == pid) renderContent(h, item) }
-        val spanned = HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_LEGACY, getter, null)
+        // Los embeds ya NO van en el HTML: se extraen como specs y se pintan como
+        // reproductores interactivos (bindEmbeds). El HTML aquí es solo texto/imágenes.
+        val spanned = HtmlCompat.fromHtml(item.html, HtmlCompat.FROM_HTML_MODE_LEGACY, getter, null)
         if (spanned is Spannable) {
             for (span in spanned.getSpans(0, spanned.length, URLSpan::class.java)) {
                 val start = spanned.getSpanStart(span)

@@ -184,6 +184,10 @@ class MainActivity : AppCompatActivity() {
     private var touchDownX = 0f
     private var touchDownY = 0f
 
+    // Vídeo de embed a pantalla completa (WebChromeClient.onShowCustomView).
+    private var fullscreenView: View? = null
+    private var fullscreenCallback: android.webkit.WebChromeClient.CustomViewCallback? = null
+
     companion object {
         private const val PREFS = "shell_prefs"
         private const val PREF_LAST_FID = "last_fid"
@@ -998,7 +1002,8 @@ class MainActivity : AppCompatActivity() {
             // "+": alterna la cita en la respuesta (sin abrir el panel).
             onMultiquoteToggle = { post -> toggleMultiquote(post) },
             isSelected = { pid -> replyQuotes.containsKey(pid) },
-            onMenu = { post, anchor -> showPostMenu(post, anchor) }
+            onMenu = { post, anchor -> showPostMenu(post, anchor) },
+            onEmbedFullscreen = { view, cb -> onEmbedFullscreen(view, cb) }
         )
         val lm = LinearLayoutManager(this)
         postList.layoutManager = lm
@@ -1840,6 +1845,36 @@ class MainActivity : AppCompatActivity() {
         if (tabIdx >= 0) forumTabs.getTabAt(tabIdx)?.select() else requestThreadList(1)
     }
 
+    /**
+     * Vídeo de embed a pantalla completa: el reproductor pide mostrar su vista custom;
+     * la ponemos sobre todo, ocultando las barras del sistema. NO es el foro (es el
+     * reproductor de X/YouTube/TikTok), así que la regla de oro no aplica.
+     */
+    private fun onEmbedFullscreen(view: View?, callback: android.webkit.WebChromeClient.CustomViewCallback?) {
+        val decor = window.decorView as android.view.ViewGroup
+        val controller = WindowInsetsControllerCompat(window, decor)
+        if (view != null) {
+            fullscreenView = view
+            fullscreenCallback = callback
+            decor.addView(view, android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            fullscreenView?.let { decor.removeView(it) }
+            fullscreenView = null
+            try { fullscreenCallback?.onCustomViewHidden() } catch (_: Exception) {}
+            fullscreenCallback = null
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            // El reproductor a veces gira a horizontal y no revierte: volver a vertical.
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            window.decorView.post {
+                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+
     /** Abre una URL en el navegador externo (nunca en el WebView motor visible). */
     private fun openExternal(url: String) {
         try {
@@ -2130,6 +2165,11 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("Needed for API < 33")
     override fun onBackPressed() {
+        // Salir de la pantalla completa de vídeo antes que nada.
+        if (fullscreenView != null) {
+            onEmbedFullscreen(null, null)
+            return
+        }
         if (isWebVisible) {
             when {
                 webView.canGoBack() -> webView.goBack()

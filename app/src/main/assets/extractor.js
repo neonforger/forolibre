@@ -139,6 +139,54 @@
     });
   }
 
+  // Recoge los embeds de un mensaje como SPECS y los QUITA del HTML: el render nativo los
+  // pinta como reproductores oficiales interactivos (EmbedView, WebView por embed). Sustituye
+  // a processEmbeds en la vista de hilo — ya no degradamos a tarjeta-enlace.
+  function collectEmbeds(m, doc) {
+    var embeds = [];
+    m.querySelectorAll('blockquote.twitter-tweet').forEach(function (bq) {
+      var a = bq.querySelector('a[href*="/status/"]') || bq.querySelector('a[href]');
+      var href = a ? a.getAttribute('href') : '';
+      if (href) embeds.push({ kind: 'twitter', url: href.split('?')[0], id: '' });
+      bq.remove();
+    });
+    m.querySelectorAll('blockquote.instagram-media, [data-instgrm-permalink]').forEach(function (bq) {
+      var href = bq.getAttribute('data-instgrm-permalink') ||
+        (bq.querySelector('a[href]') ? bq.querySelector('a[href]').getAttribute('href') : '');
+      href = (href || '').split('?')[0];
+      if (href) embeds.push({ kind: 'instagram', url: href, id: '' });
+      bq.remove();
+    });
+    m.querySelectorAll('blockquote.tiktok-embed').forEach(function (bq) {
+      var vid = bq.getAttribute('data-video-id') || '';
+      var cite = bq.getAttribute('cite') ||
+        (bq.querySelector('a[href]') ? bq.querySelector('a[href]').getAttribute('href') : '');
+      embeds.push({ kind: 'tiktok', url: (cite || '').split('?')[0], id: vid });
+      bq.remove();
+    });
+    m.querySelectorAll('iframe[src*="youtube"], iframe[src*="youtu.be"], iframe[src*="ytimg"]').forEach(function (f) {
+      var id = ytIdFrom(f.getAttribute('src') || '');
+      if (id) embeds.push({ kind: 'youtube', url: '', id: id });
+      f.remove();
+    });
+    m.querySelectorAll('a[href*="youtube.com/watch"], a[href*="youtu.be/"], a[href*="youtube.com/shorts"]').forEach(function (a) {
+      var id = ytIdFrom(a.getAttribute('href') || '');
+      if (id) { embeds.push({ kind: 'youtube', url: '', id: id }); a.remove(); }
+    });
+    m.querySelectorAll('video').forEach(function (v) {
+      var src = v.getAttribute('src') ||
+        (v.querySelector('source') ? v.querySelector('source').getAttribute('src') : '');
+      if (src) { try { src = new URL(src, 'https://forocoches.com/foro/').href; } catch (e) {} embeds.push({ kind: 'video', url: src, id: '' }); }
+      v.remove();
+    });
+    m.querySelectorAll('iframe,embed,object').forEach(function (f) {
+      var src = f.src || f.getAttribute('src') || f.getAttribute('data') || '';
+      if (src) { try { src = new URL(src, 'https://forocoches.com/foro/').href; } catch (e) {} embeds.push({ kind: 'iframe', url: src, id: '' }); }
+      f.remove();
+    });
+    return embeds;
+  }
+
   function parseRow(row, tid) {
     var anchors = [];
     row.querySelectorAll(THREAD_SEL).forEach(function (x) { anchors.push(x); });
@@ -401,15 +449,9 @@
             bq.innerHTML = (who ? '<b>' + who + ' dijo:</b><br>' : '') + q.innerHTML;
             q.replaceWith(bq);
           });
-          // Embeds sociales (Twitter/IG/TikTok/YouTube) → tarjeta o miniatura nativa.
-          processEmbeds(m, doc, url);
-          // Lo que quede sin manejar (streamable, vocaroo, otros) → enlace genérico.
-          m.querySelectorAll('iframe,video,embed,object').forEach(function (f) {
-            var src = f.src || f.getAttribute('src') || '';
-            var host = 'contenido';
-            try { if (src) host = new URL(src, 'https://forocoches.com').host.replace(/^www\./, ''); } catch (e) {}
-            f.replaceWith(embedCard(doc, src || url, '▶  Ver en ' + host));
-          });
+          // Embeds (X/IG/TikTok/YouTube/vídeo/iframe) → specs; se quitan del HTML y se
+          // renderizan como reproductores oficiales interactivos (EmbedView).
+          var embeds = collectEmbeds(m, doc);
           m.querySelectorAll('a[href]').forEach(function (a) {
             try { a.setAttribute('href', new URL(a.getAttribute('href'), 'https://forocoches.com/foro/').href); } catch (e) {}
           });
@@ -424,7 +466,7 @@
 
           posts.push({
             pid: pid, author: author, avatar: avatar, date: date,
-            html: m.innerHTML, own: !!own
+            html: m.innerHTML, own: !!own, embeds: embeds
           });
         });
         if (!posts.length) {
