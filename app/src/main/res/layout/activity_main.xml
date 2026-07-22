@@ -178,6 +178,14 @@
                 </LinearLayout>
 
                 <ImageButton
+                    android:id="@+id/thread_fav"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_fav"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Favorito" />
+
+                <ImageButton
                     android:id="@+id/thread_reply"
                     android:layout_width="44dp"
                     android:layout_height="44dp"

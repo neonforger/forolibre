@@ -660,6 +660,71 @@
       .catch(function (e) { AndroidShell.onThreadAction(JSON.stringify({ action: 'delete', ok: false, error: String(e) })); });
   };
 
+  // Favoritos (suscripción a hilo). Verificado por CDP (2026-07-22):
+  // - El botón de showthread es ESTÁTICO (siempre "addsubscription", esté suscrito o no):
+  //   el estado real SOLO se ve en las filas de subscription.php.
+  // - Alta: form real de do=addsubscription → POST a do=doaddsubscription (la respuesta
+  //   es 200 sin redirección útil: verificar re-consultando la lista).
+  // - Baja: la página do=removesubscription del skin nuevo es un STUB vacío (como la de
+  //   deletepost) pero el GET YA EJECUTA el borrado server-side; añadimos securitytoken
+  //   igualmente y verificamos re-consultando la lista.
+  // - GOTCHA VARNISH: FC sirve HTML tras Varnish y páginas PRIVADAS como subscription.php
+  //   llegan de caché (x-cache: HIT, age de hasta ~1 min). Leer el estado justo después
+  //   de cambiarlo devuelve el estado ANTERIOR y cache:'no-store' NO ayuda (la caché es
+  //   del servidor). Antídoto: query param único (_fp=timestamp) → tratada como URL
+  //   nueva → contenido fresco (verificado: x-cache pasa de HIT a SHARED con age 0).
+  window.fcToggleFavorite = function (tid) {
+    var base = 'https://forocoches.com/foro/subscription.php';
+    function fail(e) {
+      AndroidShell.onThreadAction(JSON.stringify({ action: 'fav', ok: false, error: String(e), tid: tid }));
+    }
+    function fetchDoc(url) {
+      return fetch(url, { credentials: 'same-origin' })
+        .then(function (r) { return r.text(); })
+        .then(function (h) { return new DOMParser().parseFromString(h, 'text/html'); });
+    }
+    function freshList() { return fetchDoc(base + '?_fp=' + Date.now()); }
+    // Suscrito = el tid aparece como FILA de la lista (mismo criterio que la pestaña
+    // Favoritos: parseListDoc), no como link de menú/banner.
+    function subscribed(doc) {
+      return parseListDoc(doc).some(function (t) { return t.tid === tid; });
+    }
+    freshList()
+      .then(function (doc) {
+        if (!subscribed(doc)) {
+          // ALTA: copiar el form real (securitytoken, s, threadid, url, folderid...).
+          return fetchDoc(base + '?do=addsubscription&t=' + tid + '&_fp=' + Date.now()).then(function (d2) {
+            var f = formWith(d2, 'input[value="doaddsubscription"]');
+            if (!f) { fail('login'); return null; }
+            var params = copyFormFields(f, { emailupdate: '0' }, []);
+            return fetch(base + '?do=doaddsubscription&threadid=' + tid, {
+              method: 'POST', credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: params.toString()
+            }).then(function () { return true; });
+          });
+        }
+        // BAJA: GET con token (la página devuelta es un stub; el efecto es server-side).
+        var tokEl = doc.querySelector('input[name="securitytoken"]');
+        var tok = tokEl ? tokEl.value : '';
+        return fetch(base + '?do=removesubscription&t=' + tid +
+          (tok ? '&securitytoken=' + encodeURIComponent(tok) : ''),
+          { credentials: 'same-origin' }).then(function () { return false; });
+      })
+      .then(function (wanted) {
+        if (wanted === null || wanted === undefined) return;
+        // Verificación con evidencia: ¿quedó la lista como debía? (fresca, sin Varnish)
+        return freshList().then(function (doc) {
+          var now = subscribed(doc);
+          AndroidShell.onThreadAction(JSON.stringify({
+            action: 'fav', ok: now === wanted, fav: now, tid: tid,
+            error: now === wanted ? '' : 'La suscripción no cambió'
+          }));
+        });
+      })
+      .catch(fail);
+  };
+
   // ── Login desde UI nativa (Fase 3) ─────────────────────────────────────────
   // Mismo principio que fcSubmitReply: traemos el form REAL de login de FC, copiamos
   // sus campos (securitytoken incluido) y solo rellenamos usuario y contraseña. El

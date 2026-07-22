@@ -10,6 +10,7 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.EditText
 import androidx.appcompat.widget.SwitchCompat
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var threadLoading: ProgressBar
     private lateinit var threadTitle: TextView
     private lateinit var threadPageInfo: TextView
+    private lateinit var threadFav: ImageButton
     private lateinit var postAdapter: PostAdapter
 
     // ── Pantalla "hilo restringido" (+HD) ──
@@ -163,8 +165,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildListUrl(page: Int): String {
+        // Cache-buster _fp: FC sirve subscription.php tras Varnish con copias de hasta
+        // ~1 min (x-cache: HIT); sin él, tras marcar/desmarcar un favorito la lista
+        // llegaría rancia. El param único fuerza contenido fresco (gotcha 2026-07-22).
         val base = when (listSource) {
-            "favs" -> "https://forocoches.com/foro/subscription.php"
+            "favs" -> "https://forocoches.com/foro/subscription.php?_fp=${System.currentTimeMillis()}"
             else -> "https://forocoches.com/foro/forumdisplay.php?f=$currentForumId"
         }
         if (page <= 1) return base
@@ -509,6 +514,8 @@ class MainActivity : AppCompatActivity() {
         threadTitle = findViewById(R.id.thread_title)
         threadPageInfo = findViewById(R.id.thread_page_info)
         threadPageInfo.setOnClickListener { if (threadPageCount > 1) showPageJumpSheet() }
+        threadFav = findViewById(R.id.thread_fav)
+        threadFav.setOnClickListener { toggleFavorite() }
         nativeHeader = findViewById(R.id.native_header)
         noticesPanel = findViewById(R.id.notices_panel)
         noticesHeader = findViewById(R.id.notices_header)
@@ -1153,7 +1160,28 @@ class MainActivity : AppCompatActivity() {
                     reloadCurrentThread()
                 } else toast(if (err.isNotEmpty()) err else "No se pudo borrar el mensaje")
             }
+            "fav" -> {
+                threadFav.isEnabled = true
+                val fav = try { org.json.JSONObject(json).optBoolean("fav", false) } catch (_: Exception) { false }
+                if (ok) {
+                    threadFav.setImageResource(if (fav) R.drawable.ic_fav_on else R.drawable.ic_fav)
+                    toast(if (fav) "Añadido a favoritos" else "Quitado de favoritos")
+                } else toast(if (err == "login") "Inicia sesión para usar favoritos"
+                             else if (err.isNotEmpty()) err else "No se pudo cambiar el favorito")
+            }
         }
+    }
+
+    /** Favoritos: alterna la suscripción del hilo abierto. El estado real vive en
+     *  subscription.php (el botón de FC en el hilo es estático), así que el motor
+     *  consulta, alterna y verifica; aquí solo se refleja el resultado. */
+    private fun toggleFavorite() {
+        if (!isLoggedIn()) { toast("Inicia sesión para usar favoritos"); showLogin(); return }
+        if (currentThreadTid.isEmpty()) { toast("No se pudo identificar el hilo"); return }
+        threadFav.isEnabled = false
+        webView.evaluateJavascript(
+            "window.fcToggleFavorite&&fcToggleFavorite('${jsEscape(currentThreadTid)}')", null
+        )
     }
 
     /** Recarga el hilo abierto desde la página 1 (tras editar/borrar un post). */
@@ -1403,6 +1431,10 @@ class MainActivity : AppCompatActivity() {
         restrictedView.visibility = View.GONE
         threadTitle.text = title
         threadPageInfo.text = ""
+        // El estado de favorito NO se puede leer del hilo (el botón de FC es estático):
+        // estrella neutra hasta que el usuario la toque y el toggle confirme.
+        threadFav.setImageResource(R.drawable.ic_fav)
+        threadFav.isEnabled = true
         showThread()
         requestThreadPage(1)
     }
