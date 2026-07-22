@@ -159,7 +159,9 @@
         if (i + 1 < spans.length) author = spans[i + 1].textContent.trim();
         for (var j = i - 1; j >= 0; j--) {
           var t = spans[j].textContent.trim();
-          if (/^\d+$/.test(t)) { replies = t; break; }
+          // Tolerar separador de miles ("1.680"): sin él, los hilos con ≥1.000
+          // respuestas salían sin contador (mismo bug que en parseSearchDoc).
+          if (/^[\d.,]+$/.test(t)) { replies = t.replace(/[.,]/g, ''); break; }
           if (t.length > 6) break; // ya no es el contador
         }
         break;
@@ -218,8 +220,10 @@
       var author = '', replies = '', time = '';
       item.querySelectorAll('a[href*="highlight"]').forEach(function (x) {
         var tx = x.textContent.replace(/\s+/g, ' ').trim();
-        var rm = tx.match(/^(\d+)\s*@\s*(.+)$/);           // "90 @ usuario"
-        if (rm) { replies = rm[1]; author = rm[2].trim(); }
+        // "90 @ usuario" — OJO: con ≥1.000 respuestas FC pone separador de miles
+        // ("1.680 @ usuario"); sin tolerarlo, esos hilos salían SIN autor (bug real).
+        var rm = tx.match(/^([\d.,]+)\s*@\s*(.+)$/);
+        if (rm) { replies = rm[1].replace(/[.,]/g, ''); author = rm[2].trim(); }
         else if (tx !== title && /\d{1,2}:\d{2}|ayer|hoy|-\w{3}-/i.test(tx)) time = tx;
       });
       threads.push({
