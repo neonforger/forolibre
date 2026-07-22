@@ -20,7 +20,8 @@ class ShellBridge(
     private val onProfileData: (String) -> Unit,
     private val onLogout: (String) -> Unit,
     private val onThreadActionData: (String) -> Unit,
-    private val onEditLoadData: (String) -> Unit
+    private val onEditLoadData: (String) -> Unit,
+    private val onPmDataResult: (String) -> Unit
 ) {
     @JavascriptInterface
     fun onThreadList(json: String) = onList(json)
@@ -60,4 +61,7 @@ class ShellBridge(
 
     @JavascriptInterface
     fun onEditLoad(json: String) = onEditLoadData(json)
+
+    @JavascriptInterface
+    fun onPmData(json: String) = onPmDataResult(json)
 }

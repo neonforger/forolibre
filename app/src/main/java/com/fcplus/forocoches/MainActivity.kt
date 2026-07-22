@@ -110,6 +110,31 @@ class MainActivity : AppCompatActivity() {
     private var isProfileVisible = false
     private var profileLogoutUrl = ""
 
+    // ── Mensajes privados nativos ──
+    private lateinit var pmPanel: View
+    private lateinit var pmList: RecyclerView
+    private lateinit var pmLoading: ProgressBar
+    private lateinit var pmEmpty: TextView
+    private lateinit var pmAdapter: PmInboxAdapter
+    private lateinit var pmDetailPanel: View
+    private lateinit var pmDetailSubject: TextView
+    private lateinit var pmDetailSender: TextView
+    private lateinit var pmDetailBody: TextView
+    private lateinit var pmDetailReply: TextView
+    private lateinit var pmComposePanel: View
+    private lateinit var pmComposeTitle: TextView
+    private lateinit var pmComposeTo: android.widget.EditText
+    private lateinit var pmComposeSubject: android.widget.EditText
+    private lateinit var pmComposeMessage: android.widget.EditText
+    private lateinit var pmComposeSend: TextView
+    private var isPmVisible = false
+    private var isPmDetailVisible = false
+    private var isPmComposeVisible = false
+    private var currentPmId = ""           // MP abierto en el detalle
+    private var currentPmSubject = ""      // asunto del MP abierto (para "Re:" al responder)
+    private var pmComposeMode = "new"      // new | reply
+    private var sendingPm = false
+
     private lateinit var nativeHeader: TextView
     private lateinit var fabNewThread: View
     private var listSource = "home"        // home | favs | mine (qué alimenta la lista nativa)
@@ -358,6 +383,203 @@ class MainActivity : AppCompatActivity() {
         requestThreadList(1)
     }
 
+    // ── Mensajes privados nativos ─────────────────────────────────────────────
+
+    private fun configurePmPanels() {
+        pmPanel = findViewById(R.id.pm_panel)
+        pmList = findViewById(R.id.pm_list)
+        pmLoading = findViewById(R.id.pm_loading)
+        pmEmpty = findViewById(R.id.pm_empty)
+        pmAdapter = PmInboxAdapter { pm -> showPmDetail(pm.pmid, pm.subject) }
+        pmList.layoutManager = LinearLayoutManager(this)
+        pmList.adapter = pmAdapter
+        findViewById<View>(R.id.pm_back).setOnClickListener { showProfile() }
+        findViewById<View>(R.id.pm_new).setOnClickListener { showPmCompose("new", "", "") }
+
+        pmDetailPanel = findViewById(R.id.pm_detail_panel)
+        pmDetailSubject = findViewById(R.id.pm_detail_subject)
+        pmDetailSender = findViewById(R.id.pm_detail_sender)
+        pmDetailBody = findViewById(R.id.pm_detail_body)
+        pmDetailBody.movementMethod = android.text.method.LinkMovementMethod.getInstance()
+        pmDetailReply = findViewById(R.id.pm_detail_reply)
+        findViewById<View>(R.id.pm_detail_back).setOnClickListener { showPmInbox() }
+        pmDetailReply.setOnClickListener { showPmCompose("reply", currentPmId, currentPmSubject) }
+
+        pmComposePanel = findViewById(R.id.pm_compose_panel)
+        pmComposeTitle = findViewById(R.id.pm_compose_title)
+        pmComposeTo = findViewById(R.id.pm_compose_to)
+        pmComposeSubject = findViewById(R.id.pm_compose_subject)
+        pmComposeMessage = findViewById(R.id.pm_compose_message)
+        pmComposeSend = findViewById(R.id.pm_compose_send)
+        findViewById<View>(R.id.pm_compose_cancel).setOnClickListener { cancelPmCompose() }
+        pmComposeSend.setOnClickListener { sendPm() }
+    }
+
+    /** Oculta los tres paneles de MP (se llama al navegar a cualquier destino estándar). */
+    private fun hidePmPanels() {
+        isPmVisible = false; isPmDetailVisible = false; isPmComposeVisible = false
+        pmPanel.visibility = View.GONE
+        pmDetailPanel.visibility = View.GONE
+        pmComposePanel.visibility = View.GONE
+    }
+
+    /** Oculta todas las capas estándar (para que un panel de MP quede solo en pantalla). */
+    private fun hideAllStandardPanels() {
+        nativePanel.visibility = View.GONE
+        threadPanel.visibility = View.GONE
+        replyPanel.visibility = View.GONE
+        loginPanel.visibility = View.GONE
+        noticesPanel.visibility = View.GONE
+        profilePanel.visibility = View.GONE
+        optionsPanel.visibility = View.GONE
+    }
+
+    /** Bandeja de MPs nativa (la regla de oro prohíbe la capa web). */
+    private fun showPmInbox() {
+        if (!isLoggedIn()) { toast("Inicia sesión para ver tus mensajes"); showLogin(); return }
+        isPmVisible = true; isPmDetailVisible = false; isPmComposeVisible = false
+        isWebVisible = false; isThreadVisible = false; isReplyVisible = false
+        isLoginVisible = false; isNoticesVisible = false; isProfileVisible = false; isOptionsVisible = false
+        hideAllStandardPanels()
+        pmPanel.visibility = View.VISIBLE
+        pmDetailPanel.visibility = View.GONE
+        pmComposePanel.visibility = View.GONE
+        bottomNav.visibility = View.VISIBLE
+        swipeRefresh.visibility = View.INVISIBLE
+        setSelectedNav(R.id.nav_profile)
+        pmAdapter.submit(emptyList())
+        pmEmpty.visibility = View.GONE
+        pmLoading.visibility = View.VISIBLE
+        webView.evaluateJavascript("window.fcLoadPmInbox&&fcLoadPmInbox()", null)
+    }
+
+    private fun showPmDetail(pmid: String, subject: String) {
+        currentPmId = pmid
+        currentPmSubject = subject
+        isPmDetailVisible = true; isPmVisible = false; isPmComposeVisible = false
+        hideAllStandardPanels()
+        pmPanel.visibility = View.GONE
+        pmComposePanel.visibility = View.GONE
+        pmDetailPanel.visibility = View.VISIBLE
+        bottomNav.visibility = View.VISIBLE
+        swipeRefresh.visibility = View.INVISIBLE
+        pmDetailSubject.text = subject
+        pmDetailSender.text = ""
+        pmDetailBody.text = "Cargando…"
+        pmDetailReply.visibility = View.GONE
+        webView.evaluateJavascript("window.fcLoadPm&&fcLoadPm('${jsEscape(pmid)}')", null)
+    }
+
+    private fun showPmCompose(mode: String, pmid: String, subject: String) {
+        pmComposeMode = mode
+        isPmComposeVisible = true; isPmVisible = false; isPmDetailVisible = false
+        hideAllStandardPanels()
+        pmPanel.visibility = View.GONE
+        pmDetailPanel.visibility = View.GONE
+        pmComposePanel.visibility = View.VISIBLE
+        bottomNav.visibility = View.GONE   // hay inputs de texto: teclado a pantalla limpia
+        swipeRefresh.visibility = View.INVISIBLE
+        sendingPm = false
+        pmComposeSend.isEnabled = true
+        pmComposeSend.text = "Enviar"
+        pmComposeMessage.setText("")
+        if (mode == "reply") {
+            pmComposeTitle.text = "Responder"
+            pmComposeTo.visibility = View.GONE
+            pmComposeSubject.visibility = View.GONE
+        } else {
+            pmComposeTitle.text = "Nuevo mensaje"
+            pmComposeTo.visibility = View.VISIBLE
+            pmComposeSubject.visibility = View.VISIBLE
+            pmComposeTo.setText("")
+            pmComposeSubject.setText("")
+        }
+        pmComposeMessage.requestFocus()
+    }
+
+    private fun cancelPmCompose() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(pmComposePanel.windowToken, 0)
+        if (pmComposeMode == "reply" && currentPmId.isNotEmpty()) showPmDetail(currentPmId, currentPmSubject)
+        else showPmInbox()
+    }
+
+    private fun sendPm() {
+        if (sendingPm) return
+        val message = pmComposeMessage.text.toString().trim()
+        if (message.isEmpty()) { toast("Escribe un mensaje"); return }
+        val recipients: String
+        val title: String
+        val pmid: String
+        if (pmComposeMode == "reply") {
+            recipients = ""; title = ""; pmid = currentPmId
+        } else {
+            recipients = pmComposeTo.text.toString().trim()
+            title = pmComposeSubject.text.toString().trim()
+            pmid = ""
+            if (recipients.isEmpty()) { toast("Indica el destinatario"); return }
+            if (title.isEmpty()) { toast("Escribe un asunto"); return }
+        }
+        sendingPm = true
+        pmComposeSend.isEnabled = false
+        pmComposeSend.text = "…"
+        webView.evaluateJavascript(
+            "window.fcSendPm&&fcSendPm('${jsEscape(recipients)}','${jsEscape(title)}'," +
+                "'${jsEscape(message)}','${jsEscape(pmid)}')", null
+        )
+    }
+
+    /** Callback del motor para todos los estados de MP (bandeja/detalle/envío). */
+    private fun onPmData(json: String) {
+        val o = try { org.json.JSONObject(json) } catch (_: Exception) { return }
+        when (o.optString("view")) {
+            "inbox" -> {
+                if (!isPmVisible) return
+                pmLoading.visibility = View.GONE
+                val err = o.optString("error", "")
+                if (err == "cloudflare") {
+                    // La regla de oro admite el challenge de CF como única excepción.
+                    showWeb(); webView.loadUrl("https://forocoches.com/foro/private.php"); return
+                }
+                val items = parsePmInbox(json)
+                pmAdapter.submit(items)
+                if (items.isEmpty()) {
+                    pmEmpty.visibility = View.VISIBLE
+                    pmEmpty.text = if (err.isNotEmpty()) "No se pudieron cargar los mensajes"
+                        else "No tienes mensajes privados"
+                }
+            }
+            "detail" -> {
+                if (!isPmDetailVisible) return
+                if (o.optString("pmid") != currentPmId) return
+                val err = o.optString("error", "")
+                if (err.isNotEmpty()) { pmDetailBody.text = "No se pudo cargar el mensaje"; return }
+                val sender = o.optString("sender").trim()
+                pmDetailSender.text = if (sender.isNotEmpty()) "@$sender" else ""
+                val subj = o.optString("subject").trim()
+                if (subj.isNotEmpty()) { pmDetailSubject.text = subj; currentPmSubject = subj }
+                pmDetailBody.text = androidx.core.text.HtmlCompat.fromHtml(
+                    o.optString("body"), androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY
+                )
+                pmDetailReply.visibility = if (o.optBoolean("canReply", false)) View.VISIBLE else View.GONE
+            }
+            "send" -> {
+                sendingPm = false
+                pmComposeSend.isEnabled = true
+                pmComposeSend.text = "Enviar"
+                if (o.optBoolean("ok", false)) {
+                    val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(pmComposePanel.windowToken, 0)
+                    toast("Mensaje enviado")
+                    showPmInbox()
+                } else {
+                    val err = o.optString("error", "")
+                    toast(if (err.isNotEmpty()) err else "No se pudo enviar el mensaje")
+                }
+            }
+        }
+    }
+
     /** Citas o menciones AISLADAS en su propia página (no el batiburrillo de FC). */
     private fun showNotices(kind: String) {
         val url = if (kind == "quotes") menuLinks?.quotes else menuLinks?.mentions
@@ -365,7 +587,8 @@ class MainActivity : AppCompatActivity() {
         currentNoticesKind = kind
         isNoticesVisible = true
         isWebVisible = false; isThreadVisible = false; isReplyVisible = false
-        isLoginVisible = false; isProfileVisible = false
+        isLoginVisible = false; isProfileVisible = false; isOptionsVisible = false
+        hidePmPanels()
         noticesPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
@@ -406,13 +629,15 @@ class MainActivity : AppCompatActivity() {
     private fun showProfile() {
         isProfileVisible = true
         isWebVisible = false; isThreadVisible = false; isReplyVisible = false
-        isLoginVisible = false; isNoticesVisible = false
+        isLoginVisible = false; isNoticesVisible = false; isOptionsVisible = false
+        hidePmPanels()
         profilePanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
         noticesPanel.visibility = View.GONE
+        optionsPanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
         bottomNav.visibility = View.VISIBLE
         setSelectedNav(R.id.nav_profile)
@@ -443,6 +668,7 @@ class MainActivity : AppCompatActivity() {
     private fun showOptions() {
         isOptionsVisible = true
         isNoticesVisible = false; isProfileVisible = false
+        hidePmPanels()
         options.bind()
         optionsPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
@@ -535,9 +761,10 @@ class MainActivity : AppCompatActivity() {
         // El WebView arranca OCULTO como motor: al terminar de cargar, extractor.js queda
         // inyectado y pedimos el listado por fetch same-origin (nunca HTTP nativo).
         val startUrl = TrustedOrigins.trustedUrlOrDefault(intent.getStringExtra("url"))
-        if (startUrl != TrustedOrigins.DEFAULT_URL && startUrl.contains("showthread.php")) {
-            // Deep link de hilo en frío: el motor aún no está listo, así que se guarda y se
-            // abre en NATIVO en onEnginePageReady. Nada de enseñar el foro web.
+        if (startUrl != TrustedOrigins.DEFAULT_URL &&
+            (startUrl.contains("showthread.php") || startUrl.contains("private.php"))) {
+            // Deep link de hilo o MP en frío: el motor aún no está listo, así que se guarda
+            // y se abre en NATIVO en onEnginePageReady. Nada de enseñar el foro web.
             pendingDeepLink = startUrl
             showNative()
             listLoading.visibility = View.VISIBLE
@@ -618,7 +845,8 @@ class MainActivity : AppCompatActivity() {
                 onProfileData = { json -> runOnUiThread { onProfileJson(json) } },
                 onLogout = { result -> runOnUiThread { onLogoutDone(result) } },
                 onThreadActionData = { json -> runOnUiThread { onThreadActionResult(json) } },
-                onEditLoadData = { json -> runOnUiThread { onEditLoad(json) } }
+                onEditLoadData = { json -> runOnUiThread { onEditLoad(json) } },
+                onPmDataResult = { json -> runOnUiThread { onPmData(json) } }
             ),
             "AndroidShell"
         )
@@ -668,7 +896,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.native_options).setOnClickListener { showOptions() }
         findViewById<View>(R.id.native_search).setOnClickListener { showSearchSheet() }
         findViewById<View>(R.id.options_back).setOnClickListener { hideOptions() }
+        configurePmPanels()
         findViewById<View>(R.id.profile_logout).setOnClickListener { doLogout() }
+        findViewById<View>(R.id.profile_pms).setOnClickListener { showPmInbox() }
         findViewById<View>(R.id.profile_open_web).setOnClickListener {
             val u = menuLinks?.profile ?: return@setOnClickListener
             try {
@@ -887,6 +1117,7 @@ class MainActivity : AppCompatActivity() {
     private fun showComposer(mode: String, title: String, showSubject: Boolean) {
         replyMode = mode
         isReplyVisible = true
+        hidePmPanels()
         replyPanel.visibility = View.VISIBLE
         threadPanel.visibility = View.GONE
         nativePanel.visibility = View.GONE
@@ -1402,6 +1633,12 @@ class MainActivity : AppCompatActivity() {
      */
     private fun openDeepLink(url: String): Boolean {
         if (!TrustedOrigins.isTrustedForocochesUrl(url)) return false
+        // MP: la notificación apunta a private.php → bandeja nativa (nunca la capa web).
+        if (url.contains("private.php")) {
+            if (!engineReady) { pendingDeepLink = url; return true }
+            showPmInbox()
+            return true
+        }
         if (!url.contains("showthread.php")) return false
         if (!engineReady) { pendingDeepLink = url; return true }  // se reintenta al arrancar
         openThreadNative(url, "")
@@ -1604,6 +1841,7 @@ class MainActivity : AppCompatActivity() {
         isProfileVisible = false
         isOptionsVisible = false
         cameFromThread = false
+        hidePmPanels()
         nativePanel.visibility = View.VISIBLE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
@@ -1626,6 +1864,7 @@ class MainActivity : AppCompatActivity() {
         isNoticesVisible = false
         isProfileVisible = false
         isOptionsVisible = false
+        hidePmPanels()
         threadPanel.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
@@ -1644,6 +1883,7 @@ class MainActivity : AppCompatActivity() {
         isNoticesVisible = false
         isProfileVisible = false
         isOptionsVisible = false
+        hidePmPanels()
         swipeRefresh.visibility = View.VISIBLE
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
@@ -1886,6 +2126,19 @@ class MainActivity : AppCompatActivity() {
         }
         if (isOptionsVisible) {
             hideOptions()
+            return
+        }
+        // Mensajes privados: compositor → detalle/bandeja; detalle → bandeja; bandeja → perfil.
+        if (isPmComposeVisible) {
+            cancelPmCompose()
+            return
+        }
+        if (isPmDetailVisible) {
+            showPmInbox()
+            return
+        }
+        if (isPmVisible) {
+            showProfile()
             return
         }
         if (isNoticesVisible || isProfileVisible) {

@@ -729,6 +729,144 @@
       .catch(fail);
   };
 
+  // ── Mensajes privados nativos ──────────────────────────────────────────────
+  // La regla de oro exige que los MP NO caigan a la capa web. Aquí se extrae la
+  // bandeja y el detalle de private.php (fetch same-origin) y se emiten como JSON;
+  // el envío copia el form REAL (do=newpm → do=insertpm, wysiwyg=0). Cache-buster _fp
+  // por el gotcha Varnish: tras enviar/leer, la lista podría llegar rancia.
+
+  // Simplifica el cuerpo de un MP igual que un post (citas → blockquote, embeds →
+  // tarjeta, URLs absolutas) para el mismo render nativo.
+  function simplifyPmBody(msg, doc) {
+    var m = msg.cloneNode(true);
+    m.querySelectorAll('script,style').forEach(function (x) { x.remove(); });
+    m.querySelectorAll('div.quote').forEach(function (q) {
+      var bq = doc.createElement('blockquote');
+      var qb = q.querySelector('b');
+      var who = qb ? qb.textContent.trim() : '';
+      bq.innerHTML = (who ? '<b>' + who + ' dijo:</b><br>' : '') + q.innerHTML;
+      q.replaceWith(bq);
+    });
+    processEmbeds(m, doc, 'https://forocoches.com/foro/private.php');
+    m.querySelectorAll('iframe,video,embed,object').forEach(function (f) {
+      var src = f.src || f.getAttribute('src') || '';
+      f.replaceWith(embedCard(doc, src || '#', '▶  Ver contenido'));
+    });
+    m.querySelectorAll('a[href]').forEach(function (a) {
+      try { a.setAttribute('href', new URL(a.getAttribute('href'), 'https://forocoches.com/foro/').href); } catch (e) {}
+    });
+    m.querySelectorAll('img[src]').forEach(function (i) {
+      try { i.setAttribute('src', new URL(i.getAttribute('src'), 'https://forocoches.com/foro/').href); } catch (e) {}
+    });
+    return m.innerHTML;
+  }
+
+  window.fcLoadPmInbox = function () {
+    fetch('https://forocoches.com/foro/private.php?_fp=' + Date.now(), { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onPmData(JSON.stringify({ view: 'inbox', error: 'cloudflare' })); return;
+        }
+        var pms = [], seen = {};
+        doc.querySelectorAll('a[href*="do=showpm"]').forEach(function (a) {
+          var mm = (a.getAttribute('href') || '').match(/pmid=(\d+)/);
+          if (!mm || seen[mm[1]]) return;
+          var pmid = mm[1];
+          var subject = (a.querySelector('strong') || a).textContent.replace(/\s+/g, ' ').trim();
+          if (!subject) return;
+          seen[pmid] = 1;
+          // Bloque de la fila: subir hasta tener remitente y fecha en el mismo contenedor.
+          var row = a;
+          for (var i = 0; i < 6 && row.parentElement; i++) {
+            row = row.parentElement;
+            if (row.querySelector('[onclick*="member.php"], a[href*="member.php?u="]')) break;
+          }
+          var senderEl = row.querySelector('[onclick*="member.php"], a[href*="member.php?u="]');
+          var sender = senderEl ? senderEl.textContent.replace(/\s+/g, ' ').trim() : '';
+          var sid = '';
+          if (senderEl) {
+            var sm = (senderEl.getAttribute('onclick') || senderEl.getAttribute('href') || '').match(/u=(\d+)/);
+            if (sm) sid = sm[1];
+          }
+          var dm = row.textContent.match(/(Hoy|Ayer|\d{1,2}-[a-z]{3,4}-\d{2,4})[, ]*\d{1,2}:\d{2}/i);
+          var unread = row.innerHTML.indexOf('message-unread-icon') !== -1;
+          pms.push({
+            pmid: pmid, subject: subject, sender: sender, senderId: sid,
+            date: dm ? dm[0] : '', unread: unread
+          });
+        });
+        AndroidShell.onPmData(JSON.stringify({
+          view: 'inbox', pms: pms, menu: menuLinks(), counts: menuCounts(doc)
+        }));
+      })
+      .catch(function (e) { AndroidShell.onPmData(JSON.stringify({ view: 'inbox', error: String(e) })); });
+  };
+
+  window.fcLoadPm = function (pmid) {
+    fetch('https://forocoches.com/foro/private.php?do=showpm&pmid=' + pmid + '&_fp=' + Date.now(),
+      { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (/just a moment|attention required|un momento/i.test(doc.title || '')) {
+          AndroidShell.onPmData(JSON.stringify({ view: 'detail', pmid: pmid, error: 'cloudflare' })); return;
+        }
+        var msg = doc.querySelector('[id^="post_message_"]');
+        var body = msg ? simplifyPmBody(msg, doc) : '';
+        // Remitente: primer member.php; su texto puede traer "N Posts M Hilos" pegado.
+        var senderEl = doc.querySelector('a[href*="member.php?u="], [onclick*="member.php"]');
+        var sender = senderEl ? senderEl.textContent.replace(/\s+/g, ' ').trim() : '';
+        sender = (sender.match(/^[^\d]+/) || [sender])[0].trim() || sender;
+        var subj = (doc.title || '').replace(/^Forocoches\s*-\s*/, '').trim();
+        var reply = doc.querySelector('a[href*="do=newpm&pmid="], a[href*="do=newpm&amp;pmid="]');
+        AndroidShell.onPmData(JSON.stringify({
+          view: 'detail', pmid: pmid, subject: subj, sender: sender,
+          body: body, canReply: !!reply
+        }));
+      })
+      .catch(function (e) { AndroidShell.onPmData(JSON.stringify({ view: 'detail', pmid: pmid, error: String(e) })); });
+  };
+
+  // Enviar MP: nuevo (recipients+title) o respuesta (pmid presente). Copia el form
+  // REAL de FC con wysiwyg=0 (mismo principio que fcSubmitReply/fcCreateThread) y solo
+  // sustituye destinatario/asunto/mensaje. Éxito = FC redirige fuera de newpm/insertpm.
+  window.fcSendPm = function (recipients, title, message, pmid) {
+    var formUrl = pmid
+      ? 'https://forocoches.com/foro/private.php?do=newpm&pmid=' + pmid + '&wysiwyg=0'
+      : 'https://forocoches.com/foro/private.php?do=newpm&wysiwyg=0';
+    fetch(formUrl, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var f = formWith(doc, 'textarea[name="message"]');
+        if (!f) { AndroidShell.onPmData(JSON.stringify({ view: 'send', ok: false, error: 'no-form' })); return null; }
+        var ov = { message: message, wysiwyg: '0', do: 'insertpm' };
+        if (recipients) ov.recipients = recipients;
+        if (title) ov.title = title;
+        var params = copyFormFields(f, ov, ['preview']);
+        if (!params.has('sbutton')) params.set('sbutton', 'Enviar Mensaje');
+        var action = pmid ? ('private.php?do=insertpm&pmid=' + pmid) : 'private.php?do=insertpm';
+        return fetch('https://forocoches.com/foro/' + action, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        var fu = r.url || '';
+        return r.text().then(function (h) {
+          var err = extractErr(h);
+          var ok = !err && fu.indexOf('insertpm') === -1 && fu.indexOf('do=newpm') === -1;
+          AndroidShell.onPmData(JSON.stringify({
+            view: 'send', ok: ok, error: ok ? '' : (err || 'No se pudo enviar el mensaje')
+          }));
+        });
+      })
+      .catch(function (e) { AndroidShell.onPmData(JSON.stringify({ view: 'send', ok: false, error: String(e) })); });
+  };
+
   // ── Login desde UI nativa (Fase 3) ─────────────────────────────────────────
   // Mismo principio que fcSubmitReply: traemos el form REAL de login de FC, copiamos
   // sus campos (securitytoken incluido) y solo rellenamos usuario y contraseña. El
