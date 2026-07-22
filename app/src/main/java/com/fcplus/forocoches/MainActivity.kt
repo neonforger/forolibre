@@ -1803,25 +1803,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Links dentro de posts: hilos de FC → nativo; resto de FC → capa web; fuera → navegador. */
+    /**
+     * Links dentro de posts. La regla de oro exige NO caer a la capa web: lo que la app
+     * sabe pintar en nativo se abre en nativo; solo lo que no (perfiles de miembro, páginas
+     * sueltas de FC) va al NAVEGADOR EXTERNO — nunca al WebView motor visible.
+     */
     private fun onPostLinkClick(url: String) {
         when {
             url.contains("showthread.php") && TrustedOrigins.isTrustedForocochesUrl(url) ->
                 openThreadNative(url.substringBefore("&page="), "")
-            TrustedOrigins.isTrustedForocochesUrl(url) -> {
-                cameFromThread = true
-                showWeb()
-                webView.loadUrl(url)
+            // Subforo → lista nativa (antes abría la web).
+            url.contains("forumdisplay.php") && TrustedOrigins.isTrustedForocochesUrl(url) -> {
+                val fid = Regex("[?&]f=(\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull()
+                if (fid != null) openForumNative(fid) else openExternal(url)
             }
-            else -> {
-                try {
-                    startActivity(
-                        android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                            .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
-                    )
-                } catch (_: Exception) { }
-            }
+            // MPs → bandeja nativa.
+            url.contains("private.php") && TrustedOrigins.isTrustedForocochesUrl(url) -> showPmInbox()
+            // Resto de FC (member.php, misc.php, etc.): navegador externo, NO la capa web.
+            else -> openExternal(url)
         }
+    }
+
+    /** Abre un subforo concreto en la lista nativa de Inicio (selecciona su pestaña si existe). */
+    private fun openForumNative(fid: Int) {
+        currentForumId = fid
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(PREF_LAST_FID, fid).apply()
+        listSource = "home"
+        forumTabs.visibility = View.VISIBLE
+        // Si el subforo es una de las pestañas, seleccionarla; si no, cargarlo igualmente.
+        var tabIdx = -1
+        for (i in 0 until forumTabs.tabCount) if (forumTabs.getTabAt(i)?.tag == fid) { tabIdx = i; break }
+        listLoaded = false
+        adapter.submit(emptyList())
+        showNative()
+        setSelectedNav(R.id.nav_home)
+        if (tabIdx >= 0) forumTabs.getTabAt(tabIdx)?.select() else requestThreadList(1)
+    }
+
+    /** Abre una URL en el navegador externo (nunca en el WebView motor visible). */
+    private fun openExternal(url: String) {
+        try {
+            startActivity(
+                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+            )
+        } catch (_: Exception) { }
     }
 
     // ── Capas ────────────────────────────────────────────────────────────────
