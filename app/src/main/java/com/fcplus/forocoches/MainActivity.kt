@@ -1772,8 +1772,12 @@ class MainActivity : AppCompatActivity() {
     // ── Comportamiento heredado ──────────────────────────────────────────────
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // Gesto atrás/adelante por swipe: solo tiene sentido en la capa web.
-        if (!isWebVisible) return super.dispatchTouchEvent(ev)
+        // Gesto atrás/adelante por swipe en la capa web; en la lista nativa de Inicio
+        // (pestañas visibles), swipe horizontal = subforo anterior/siguiente (testers).
+        val tabsSwipe = !isWebVisible && !isThreadVisible && !isReplyVisible &&
+            !isLoginVisible && !isNoticesVisible && !isProfileVisible && !isOptionsVisible &&
+            listSource == "home" && forumTabs.visibility == View.VISIBLE
+        if (!isWebVisible && !tabsSwipe) return super.dispatchTouchEvent(ev)
         when (ev.action) {
             MotionEvent.ACTION_DOWN -> {
                 touchDownX = ev.x
@@ -1782,13 +1786,27 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_UP -> {
                 val diffX = ev.x - touchDownX
                 val diffY = ev.y - touchDownY
-                if (abs(diffX) > abs(diffY) * 2f && abs(diffX) > 100f) {
+                if (isWebVisible && abs(diffX) > abs(diffY) * 2f && abs(diffX) > 100f) {
                     if (diffX > 0 && webView.canGoBack()) { webView.goBack(); return true }
                     if (diffX < 0 && webView.canGoForward()) { webView.goForward(); return true }
+                }
+                // Umbral más exigente que en la web: la lista scrollea en vertical y un
+                // arrastre diagonal no debe cambiar de subforo por accidente.
+                if (tabsSwipe && abs(diffX) > abs(diffY) * 2f && abs(diffX) > 150f) {
+                    selectAdjacentTab(if (diffX < 0) 1 else -1)
+                    return true
                 }
             }
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    /** Pestaña vecina (delta ±1); select() dispara onTabSelected → carga del subforo. */
+    private fun selectAdjacentTab(delta: Int) {
+        val idx = forumTabs.selectedTabPosition
+        val next = idx + delta
+        if (idx < 0 || next < 0 || next >= forumTabs.tabCount) return
+        forumTabs.getTabAt(next)?.select()
     }
 
     private fun fetchIgnoreListIfNeeded() {
