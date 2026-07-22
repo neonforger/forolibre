@@ -278,7 +278,10 @@ class PostAdapter(
                 ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, 2, 2) }
             }
         }
-        val spanned = HtmlCompat.fromHtml(item.html, HtmlCompat.FROM_HTML_MODE_LEGACY, getter, null)
+        // Embeds sociales: tarjetas con datos ya cacheados se pintan enriquecidas; las
+        // pendientes disparan su fetch y re-renderizan este post al llegar (como PostImages).
+        val html = EmbedEnricher.apply(item.html) { if (h.boundPid == pid) renderContent(h, item) }
+        val spanned = HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_LEGACY, getter, null)
         if (spanned is Spannable) {
             for (span in spanned.getSpans(0, spanned.length, URLSpan::class.java)) {
                 val start = spanned.getSpanStart(span)
