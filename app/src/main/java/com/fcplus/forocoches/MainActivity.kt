@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
 
     private var touchDownX = 0f
     private var touchDownY = 0f
+    private var swipeStartedInList = false   // el swipe de subforo solo cuenta si empieza en la lista
 
     // Vídeo de embed a pantalla completa (WebChromeClient.onShowCustomView).
     private var fullscreenView: View? = null
@@ -2173,6 +2174,10 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_DOWN -> {
                 touchDownX = ev.x
                 touchDownY = ev.y
+                // El swipe de subforo solo vale si arranca SOBRE la lista de hilos: así,
+                // deslizar la barra inferior (que scrollea en horizontal) o las pestañas
+                // ya no cambia de subforo por accidente.
+                swipeStartedInList = touchInside(threadList, ev)
             }
             MotionEvent.ACTION_UP -> {
                 val diffX = ev.x - touchDownX
@@ -2183,13 +2188,23 @@ class MainActivity : AppCompatActivity() {
                 }
                 // Umbral más exigente que en la web: la lista scrollea en vertical y un
                 // arrastre diagonal no debe cambiar de subforo por accidente.
-                if (tabsSwipe && abs(diffX) > abs(diffY) * 2f && abs(diffX) > 150f) {
+                if (tabsSwipe && swipeStartedInList && abs(diffX) > abs(diffY) * 2f && abs(diffX) > 150f) {
                     selectAdjacentTab(if (diffX < 0) 1 else -1)
                     return true
                 }
             }
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    /** ¿El toque cae dentro de los límites en pantalla de [view]? (coords absolutas rawX/rawY). */
+    private fun touchInside(view: View, ev: MotionEvent): Boolean {
+        if (view.visibility != View.VISIBLE || view.width == 0 || view.height == 0) return false
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        val x = ev.rawX.toInt()
+        val y = ev.rawY.toInt()
+        return x in loc[0]..(loc[0] + view.width) && y in loc[1]..(loc[1] + view.height)
     }
 
     /** Pestaña vecina (delta ±1); select() dispara onTabSelected → carga del subforo. */
