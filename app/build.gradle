@@ -32,13 +32,13 @@ gradle.taskGraph.whenReady { graph ->
 
 android {
     namespace 'com.fcplus.forocoches'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         // Identidad permanente en Play (no visible al usuario). Neutra, sin la marca.
         applicationId "com.foroplus.app"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         versionCode 5
         versionName "1.2.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
