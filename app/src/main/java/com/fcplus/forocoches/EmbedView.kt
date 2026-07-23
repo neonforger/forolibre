@@ -11,7 +11,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONArray
 
@@ -35,17 +34,19 @@ fun parseEmbeds(arr: JSONArray?): List<EmbedSpec> {
 }
 
 /**
- * Embed interactivo. Muestra una tarjeta-marcador ligera (nativa) y, al tocarla, monta un
- * WebView que carga el reproductor OFICIAL de la plataforma y reproduce el vídeo inline —
- * sin salir de la app. Cargar bajo demanda mantiene los hilos largos fluidos (nada de un
- * WebView por tweet de golpe). No es el foro: la regla de oro no aplica a contenido de X/
- * IG/TikTok/YouTube dentro de nuestra tarjeta.
+ * Embed interactivo. Al enlazarse el post monta DIRECTAMENTE (sin toque) un WebView que carga
+ * el reproductor OFICIAL de la plataforma; el vídeo se reproduce inline al darle al play del
+ * propio reproductor, sin salir de la app. La carga se difiere ~300 ms: así los posts que
+ * pasan volando en un fling NO llegan a crear un WebView (se cancela al reciclar), y los hilos
+ * largos siguen fluidos. No es el foro: la regla de oro no aplica a contenido de X/IG/TikTok/
+ * YouTube dentro de nuestra tarjeta.
  */
 @SuppressLint("SetJavaScriptEnabled")
 class EmbedView(context: Context) : FrameLayout(context) {
 
     private var web: WebView? = null
     private var spec: EmbedSpec? = null
+    private var pendingLoad: Runnable? = null
 
     /** Callback para pedir modo pantalla completa de vídeo al Activity anfitrión. */
     var onFullscreen: ((View?, WebChromeClient.CustomViewCallback?) -> Unit)? = null
@@ -58,11 +59,16 @@ class EmbedView(context: Context) : FrameLayout(context) {
         this.spec = spec
         release()
         removeAllViews()
-        addView(buildPlaceholder(spec))
+        addView(buildLoading())
+        // Auto-carga diferida: si el post se recicla antes de los 300 ms (fling), el WebView
+        // no llega a crearse (release() cancela el Runnable).
+        pendingLoad = Runnable { load(spec) }.also { postDelayed(it, 300) }
     }
 
-    /** Libera el WebView (al reciclar el post o salir del hilo). */
+    /** Libera el WebView y cancela una carga pendiente (al reciclar el post o salir del hilo). */
     fun release() {
+        pendingLoad?.let { removeCallbacks(it) }
+        pendingLoad = null
         web?.let {
             it.stopLoading()
             it.loadUrl("about:blank")
@@ -72,34 +78,18 @@ class EmbedView(context: Context) : FrameLayout(context) {
         web = null
     }
 
-    private fun buildPlaceholder(spec: EmbedSpec): View {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+    /** Marcador ligero mientras carga el reproductor (no interactivo, evita saltos bruscos). */
+    private fun buildLoading(): View {
+        return TextView(context).apply {
+            text = "Cargando contenido…"
+            setTextColor(0xFF9E9E9E.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(14), dp(16), dp(14), dp(16))
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
                 .apply { topMargin = dp(6); bottomMargin = dp(2) }
             background = roundedBg(0xFFF2F2F2.toInt())
-            isClickable = true
-            setOnClickListener { load(spec) }
         }
-        val play = TextView(context).apply {
-            text = "▶"
-            setTextColor(labelColor(spec.kind))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(12) }
-        }
-        val label = TextView(context).apply {
-            text = labelFor(spec.kind)
-            setTextColor(0xFF1A1A1A.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-        row.addView(play)
-        row.addView(label)
-        return row
     }
 
     private fun load(spec: EmbedSpec) {
@@ -110,7 +100,9 @@ class EmbedView(context: Context) : FrameLayout(context) {
             settings.domStorageEnabled = true
             settings.loadWithOverviewMode = true
             settings.useWideViewPort = true
-            settings.mediaPlaybackRequiresUserGesture = false  // vídeo inline sin 2º toque
+            // El embed se muestra montado pero NO autoreproduce: el vídeo arranca al pulsar el
+            // play del propio reproductor (un gesto del usuario), inline. Sin audio al scrollear.
+            settings.mediaPlaybackRequiresUserGesture = true
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             setBackgroundColor(Color.WHITE)
             addJavascriptInterface(HeightBridge(), "AndroidEmbed")
@@ -186,10 +178,10 @@ class EmbedView(context: Context) : FrameLayout(context) {
                    data-video-id="${esc(spec.id)}" style="margin:0"><section></section></blockquote>
                    <script async src="https://www.tiktok.com/embed.js"></script>"""
             "youtube" ->
-                """<div class="yt"><iframe src="https://www.youtube.com/embed/${esc(spec.id)}?playsinline=1&autoplay=1&rel=0"
-                   frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>"""
+                """<div class="yt"><iframe src="https://www.youtube.com/embed/${esc(spec.id)}?playsinline=1&rel=0"
+                   frameborder="0" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe></div>"""
             "video" ->
-                """<video src="${esc(spec.url)}" controls playsinline autoplay style="width:100%;height:auto"></video>"""
+                """<video src="${esc(spec.url)}" controls playsinline preload="metadata" style="width:100%;height:auto"></video>"""
             else ->
                 """<iframe src="${esc(spec.url)}" frameborder="0" allow="autoplay; encrypted-media; fullscreen"
                    allowfullscreen style="width:100%;border:0;min-height:200px"></iframe>"""
@@ -208,21 +200,6 @@ class EmbedView(context: Context) : FrameLayout(context) {
               var n=0,t=setInterval(function(){rep();if(++n>20)clearInterval(t);},400);
               try{new ResizeObserver(rep).observe(document.body);}catch(e){}
             </script></body></html>"""
-    }
-
-    private fun labelFor(kind: String) = when (kind) {
-        "twitter" -> "Ver publicación de X"
-        "instagram" -> "Ver publicación de Instagram"
-        "tiktok" -> "Ver vídeo de TikTok"
-        "youtube" -> "Ver vídeo de YouTube"
-        "video" -> "Reproducir vídeo"
-        else -> "Ver contenido"
-    }
-
-    private fun labelColor(kind: String) = when (kind) {
-        "youtube" -> 0xFFFF0000.toInt()
-        "instagram" -> 0xFFC13584.toInt()
-        else -> 0xFFC8102E.toInt()
     }
 
     private fun roundedBg(color: Int) = android.graphics.drawable.GradientDrawable().apply {
