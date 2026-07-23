@@ -845,6 +845,8 @@ class MainActivity : AppCompatActivity() {
         configureWebView()
         configureSwipeRefresh()
         configureShell()
+        // Atrás del sistema por el dispatcher (API 36 no llama a onBackPressed()).
+        onBackPressedDispatcher.addCallback(this, onBackCallback)
 
         // El WebView arranca OCULTO como motor: al terminar de cargar, extractor.js queda
         // inyectado y pedimos el listado por fetch same-origin (nunca HTTP nativo).
@@ -2268,63 +2270,39 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(url)
     }
 
-    @Deprecated("Needed for API < 33")
-    override fun onBackPressed() {
-        // Salir de la pantalla completa de vídeo antes que nada.
-        if (fullscreenView != null) {
-            onEmbedFullscreen(null, null)
-            return
-        }
-        if (isWebVisible) {
-            when {
-                webView.canGoBack() -> webView.goBack()
-                cameFromThread -> showThread()   // la web se abrió desde un hilo nativo
-                else -> {
-                    // De la web se vuelve a la lista nativa, no se sale de la app.
-                    showNative()
-                    setSelectedNav(navIdForList())
+    /**
+     * Atrás del sistema. En API 33+ (y por defecto al apuntar a 35/36) el atrás se despacha
+     * por OnBackInvokedCallback → hay que registrar la navegación en el OnBackPressedDispatcher.
+     * Sobrescribir `onBackPressed()` ya NO se llama en API 36 (la app se salía al escritorio).
+     * Registrado en onCreate con `onBackPressedDispatcher.addCallback`.
+     */
+    private val onBackCallback = object : androidx.activity.OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            // Salir de la pantalla completa de vídeo antes que nada.
+            if (fullscreenView != null) { onEmbedFullscreen(null, null); return }
+            if (isWebVisible) {
+                when {
+                    webView.canGoBack() -> webView.goBack()
+                    cameFromThread -> showThread()   // la web se abrió desde un hilo nativo
+                    else -> { showNative(); setSelectedNav(navIdForList()) } // web → lista nativa
                 }
+                return
             }
-            return
+            if (isLoginVisible) { hideLogin(); return }
+            if (isReplyVisible) { hideReply(); return }
+            if (isOptionsVisible) { hideOptions(); return }
+            if (isMemberVisible) { exitMemberProfile(); return }
+            // MP: compositor → detalle/bandeja; detalle → bandeja; bandeja → perfil.
+            if (isPmComposeVisible) { cancelPmCompose(); return }
+            if (isPmDetailVisible) { showPmInbox(); return }
+            if (isPmVisible) { showProfile(); return }
+            if (isNoticesVisible || isProfileVisible) { showNative(); setSelectedNav(navIdForList()); return }
+            if (isThreadVisible) { showNative(); return }
+            // Raíz (lista de Inicio): nada que deshacer → comportamiento por defecto (salir).
+            // Se desactiva el callback y se re-despacha para que el sistema haga el finish.
+            isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            isEnabled = true
         }
-        if (isLoginVisible) {
-            hideLogin()
-            return
-        }
-        if (isReplyVisible) {
-            hideReply()
-            return
-        }
-        if (isOptionsVisible) {
-            hideOptions()
-            return
-        }
-        if (isMemberVisible) {
-            exitMemberProfile()
-            return
-        }
-        // Mensajes privados: compositor → detalle/bandeja; detalle → bandeja; bandeja → perfil.
-        if (isPmComposeVisible) {
-            cancelPmCompose()
-            return
-        }
-        if (isPmDetailVisible) {
-            showPmInbox()
-            return
-        }
-        if (isPmVisible) {
-            showProfile()
-            return
-        }
-        if (isNoticesVisible || isProfileVisible) {
-            showNative()
-            setSelectedNav(navIdForList())
-            return
-        }
-        if (isThreadVisible) {
-            showNative()
-            return
-        }
-        super.onBackPressed()
     }
 }
