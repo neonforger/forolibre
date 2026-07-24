@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Diálogo NATIVO de reporte. Replica el formulario real de FC (report.php): comentario +
-     motivo. El envío pasa el Cloudflare por un WebView tapado con capa nativa (ver MainActivity). -->
+<!-- Diálogo NATIVO de reporte. Replica el formulario real de FC (report.php): motivo + comentario.
+     El comentario aparece SOLO al elegir "Otros" (detalle del reporte). El envío pasa el Cloudflare
+     por un WebView tapado con capa nativa (ver MainActivity). -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -14,23 +15,9 @@
         android:paddingTop="8dp"
         android:paddingBottom="4dp">
 
-        <EditText
-            android:id="@+id/report_comment"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Comentario sobre el reporte…"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textColorHint="?android:attr/textColorSecondary"
-            android:gravity="top"
-            android:minLines="2"
-            android:maxLines="5"
-            android:inputType="textMultiLine|textCapSentences"
-            android:importantForAutofill="no" />
-
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
             android:text="Motivo"
             android:textStyle="bold"
             android:textSize="13sp"
@@ -51,5 +38,38 @@
             <RadioButton android:id="@+id/reason_content" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="?android:attr/textColorPrimary" android:paddingStart="4dp" android:text="Contenido · contenido inadecuado" />
             <RadioButton android:id="@+id/reason_other" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="?android:attr/textColorPrimary" android:paddingStart="4dp" android:text="Otros · detalle en el comentario" />
         </RadioGroup>
+
+        <!-- Comentario: OCULTO por defecto; aparece al marcar "Otros". -->
+        <LinearLayout
+            android:id="@+id/report_comment_box"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="10dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="¿Por qué lo reportas?"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                android:textColor="#C8102E"
+                android:letterSpacing="0.03" />
+
+            <EditText
+                android:id="@+id/report_comment"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:hint="Detalle del reporte…"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="?android:attr/textColorSecondary"
+                android:gravity="top"
+                android:minLines="2"
+                android:maxLines="5"
+                android:inputType="textMultiLine|textCapSentences"
+                android:importantForAutofill="no" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

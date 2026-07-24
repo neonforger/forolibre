@@ -1296,12 +1296,17 @@ class MainActivity : AppCompatActivity() {
     private fun showReportDialog(post: PostItem) {
         val view = layoutInflater.inflate(R.layout.dialog_report, null)
         val comment = view.findViewById<EditText>(R.id.report_comment)
+        val commentBox = view.findViewById<View>(R.id.report_comment_box)
         val group = view.findViewById<android.widget.RadioGroup>(R.id.report_reasons)
         // Etiqueta FC de cada motivo: el auto-submit la empareja con el radio real del formulario.
         val reasonLabels = mapOf(
             R.id.reason_18 to "+18", R.id.reason_spam to "Spam", R.id.reason_troll to "Troll",
             R.id.reason_flood to "Flood", R.id.reason_content to "Contenido", R.id.reason_other to "Otros"
         )
+        // El comentario solo tiene sentido en "Otros" (detalle del reporte): aparece al marcarlo.
+        group.setOnCheckedChangeListener { _, checkedId ->
+            commentBox.visibility = if (checkedId == R.id.reason_other) View.VISIBLE else View.GONE
+        }
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Reportar mensaje de ${post.author}")
             .setView(view)
@@ -1312,8 +1317,10 @@ class MainActivity : AppCompatActivity() {
                     getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val reason = reasonLabels[group.checkedRadioButtonId]
                         if (reason == null) { toast("Elige un motivo"); return@setOnClickListener }
+                        val txt = comment.text.toString().trim()
+                        if (reason == "Otros" && txt.isEmpty()) { toast("Escribe el motivo del reporte"); return@setOnClickListener }
                         dismiss()
-                        submitReport(post, reason, comment.text.toString().trim())
+                        submitReport(post, reason, txt)
                     }
                 }
             }.show()
@@ -1363,34 +1370,37 @@ class MainActivity : AppCompatActivity() {
         reportOverlay = overlay; reportWeb = wv; reportCover = cover
 
         wv.loadUrl("https://forocoches.com/foro/report.php?do=report&p=${post.pid}")
-        // Sondea el estado cada 800 ms: ¿ya cayó el formulario (CF superado)?
+        // Sondeo rápido (150 ms). Clave anti-parpadeo: se TAPA en el instante en que el Cloudflare
+        // desaparece (sawCf && !cf), ANTES de que el formulario se pinte — no al detectar el form.
         val started = System.currentTimeMillis()
+        var sawCf = false; var covered = false; var submitted = false
         val poll = object : Runnable {
             override fun run() {
                 val w = reportWeb ?: return
                 w.evaluateJavascript(
                     """(function(){
                         var b=document.body?document.body.innerText:'';
-                        var cf=/Un momento|Just a moment|Verificaci..n de seguridad/i.test((document.title||'')+b);
-                        var form=!!document.querySelector('textarea')&&/ENVIAR REPORTE|Motivo/i.test(b);
+                        var cf=/Un momento|Just a moment|Verificaci..n de seguridad|Verifique que/i.test((document.title||'')+b);
+                        var form=!!document.querySelector('textarea[name="reason"]');
                         return JSON.stringify({cf:cf,form:form});
                     })()"""
                 ) { res ->
-                    // evaluateJavascript devuelve el valor JSON-codificado: primero se decodifica el
-                    // string exterior, luego se parsea el objeto.
                     val r = try {
                         val inner = org.json.JSONTokener(res).nextValue() as? String
                         if (inner != null) org.json.JSONObject(inner) else null
                     } catch (e: Exception) { null }
+                    val cf = r?.optBoolean("cf") == true
                     val form = r?.optBoolean("form") == true
                     val elapsed = System.currentTimeMillis() - started
+                    if (cf) sawCf = true
+                    // Tapar YA en cuanto el CF se va (o si aparece el form): evita el flash del foro.
+                    if (!covered && (form || (sawCf && !cf))) {
+                        covered = true; reportCover?.visibility = View.VISIBLE
+                    }
                     when {
-                        form -> onReportFormReady(post, reason, comment)
-                        // El Cloudflare de report.php es INTERACTIVO (casilla "Verifique que es un ser
-                        // humano"): el usuario la pulsa (única excepción de la regla de oro). Damos
-                        // margen amplio para que la resuelva; al caer el form se tapa y auto-envía.
+                        form && !submitted -> { submitted = true; onReportFormReady(post, reason, comment) }
                         elapsed > 90000 -> { toast("No se pudo completar la verificación"); closeReportOverlay() }
-                        else -> reportHandler.postDelayed(this, 700)
+                        else -> reportHandler.postDelayed(this, 150)
                     }
                 }
             }
