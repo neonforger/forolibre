@@ -1361,26 +1361,24 @@ class MainActivity : AppCompatActivity() {
         }
         overlay.addView(wv, android.widget.FrameLayout.LayoutParams(-1, -1))
         val cover = buildReportCover(post)
-        // El cover arranca OCULTO: el WebView debe quedar VISIBLE para renderizar y resolver el
-        // Cloudflare (excepción permitida por la regla de oro). Al detectar el formulario se tapa
-        // (onReportFormReady) para que el foro web no llegue a verse.
-        cover.visibility = View.GONE
+        // El cover arranca ARRIBA (tapando). Solo se BAJA cuando hay un Cloudflare INTERACTIVO que el
+        // usuario debe resolver (excepción de la regla de oro). Así el formulario/foro NUNCA se ven:
+        // si no hay CF, el cover no se baja jamás; si lo hay, se baja solo para pulsar la casilla.
+        cover.visibility = View.VISIBLE
         overlay.addView(cover, android.widget.FrameLayout.LayoutParams(-1, -1))
         root.addView(overlay, android.view.ViewGroup.LayoutParams(-1, -1))
         reportOverlay = overlay; reportWeb = wv; reportCover = cover
 
         wv.loadUrl("https://forocoches.com/foro/report.php?do=report&p=${post.pid}")
-        // Sondeo rápido (150 ms). Clave anti-parpadeo: se TAPA en el instante en que el Cloudflare
-        // desaparece (sawCf && !cf), ANTES de que el formulario se pinte — no al detectar el form.
         val started = System.currentTimeMillis()
-        var sawCf = false; var covered = false; var submitted = false
+        var submitted = false
         val poll = object : Runnable {
             override fun run() {
                 val w = reportWeb ?: return
                 w.evaluateJavascript(
                     """(function(){
                         var b=document.body?document.body.innerText:'';
-                        var cf=/Un momento|Just a moment|Verificaci..n de seguridad|Verifique que/i.test((document.title||'')+b);
+                        var cf=/Un momento|Just a moment|Verificaci.n de seguridad|Verifique que/i.test((document.title||'')+b);
                         var form=!!document.querySelector('textarea[name="reason"]');
                         return JSON.stringify({cf:cf,form:form});
                     })()"""
@@ -1392,11 +1390,9 @@ class MainActivity : AppCompatActivity() {
                     val cf = r?.optBoolean("cf") == true
                     val form = r?.optBoolean("form") == true
                     val elapsed = System.currentTimeMillis() - started
-                    if (cf) sawCf = true
-                    // Tapar YA en cuanto el CF se va (o si aparece el form): evita el flash del foro.
-                    if (!covered && (form || (sawCf && !cf))) {
-                        covered = true; reportCover?.visibility = View.VISIBLE
-                    }
+                    // Cover ARRIBA salvo cuando hay CF interactivo (y aún no cayó el form): solo
+                    // entonces se baja para que el usuario pulse la casilla del Cloudflare.
+                    reportCover?.visibility = if (cf && !form) View.GONE else View.VISIBLE
                     when {
                         form && !submitted -> { submitted = true; onReportFormReady(post, reason, comment) }
                         elapsed > 90000 -> { toast("No se pudo completar la verificación"); closeReportOverlay() }
@@ -1406,7 +1402,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         reportPoll = poll
-        reportHandler.postDelayed(poll, 1200)
+        reportHandler.postDelayed(poll, 250)
     }
 
     private val reportHandler by lazy { android.os.Handler(mainLooper) }
