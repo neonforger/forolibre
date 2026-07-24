@@ -164,6 +164,18 @@
       embeds.push({ kind: 'tiktok', url: (cite || '').split('?')[0], id: vid });
       bq.remove();
     });
+    // YouTube "oficial" de FC: NO es un iframe ni un enlace, sino un <div id=NNN></div> vacío
+    // seguido de <script>verVideo('IDVIDEO','NNN')</script> que monta el iframe en runtime.
+    // Como parseamos estático (sin ejecutar ese JS), el ID solo vive en el texto del script:
+    // lo extraemos aquí o el vídeo se pierde (verificado por CDP 2026-07-24).
+    m.querySelectorAll('script').forEach(function (s) {
+      var mm = (s.textContent || '').match(/verVideo(?:HD)?\(\s*['"]([A-Za-z0-9_\-]{4,})['"]\s*,\s*['"]?([A-Za-z0-9_\-]+)['"]?\s*\)/);
+      if (!mm) return;
+      embeds.push({ kind: 'youtube', url: '', id: mm[1] });
+      var holder = mm[2] ? m.querySelector('[id="' + mm[2] + '"]') : null;
+      if (holder) holder.remove(); else if (s.previousElementSibling) s.previousElementSibling.remove();
+      s.remove();
+    });
     m.querySelectorAll('iframe[src*="youtube"], iframe[src*="youtu.be"], iframe[src*="ytimg"]').forEach(function (f) {
       var id = ytIdFrom(f.getAttribute('src') || '');
       if (id) embeds.push({ kind: 'youtube', url: '', id: id });
@@ -441,7 +453,7 @@
 
           // Mensaje simplificado para render nativo.
           var m = msg.cloneNode(true);
-          m.querySelectorAll('script,style').forEach(function (x) { x.remove(); });
+          m.querySelectorAll('style').forEach(function (x) { x.remove(); });
           m.querySelectorAll('div.quote').forEach(function (q) {
             var bq = doc.createElement('blockquote');
             var qb = q.querySelector('b');
@@ -452,6 +464,9 @@
           // Embeds (X/IG/TikTok/YouTube/vídeo/iframe) → specs; se quitan del HTML y se
           // renderizan como reproductores oficiales interactivos (EmbedView).
           var embeds = collectEmbeds(m, doc);
+          // Scripts fuera DESPUÉS de collectEmbeds: el YouTube "oficial" de FC vive en un
+          // <script>verVideo('ID','cont')</script> que collectEmbeds necesita leer antes.
+          m.querySelectorAll('script').forEach(function (x) { x.remove(); });
           m.querySelectorAll('a[href]').forEach(function (a) {
             try { a.setAttribute('href', new URL(a.getAttribute('href'), 'https://forocoches.com/foro/').href); } catch (e) {}
           });

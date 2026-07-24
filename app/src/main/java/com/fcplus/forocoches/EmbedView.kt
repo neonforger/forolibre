@@ -159,6 +159,10 @@ class EmbedView(context: Context) : FrameLayout(context) {
         "twitter" -> "https://twitter.com"
         "instagram" -> "https://www.instagram.com"
         "tiktok" -> "https://www.tiktok.com"
+        // El embed de YouTube es un iframe DIRECTO a youtube.com/embed y su handshake postMessage
+        // exige ser cross-origin respecto a la página anfitriona. Si la base fuera youtube.com el
+        // iframe quedaría mismo-origen y el reproductor falla (error 150/152). Origen de tercero:
+        "youtube" -> "https://forocoches.com"
         else -> "https://www.youtube.com"
     }
 
@@ -178,7 +182,7 @@ class EmbedView(context: Context) : FrameLayout(context) {
                    data-video-id="${esc(spec.id)}" style="margin:0"><section></section></blockquote>
                    <script async src="https://www.tiktok.com/embed.js"></script>"""
             "youtube" ->
-                """<div class="yt"><iframe src="https://www.youtube.com/embed/${esc(spec.id)}?playsinline=1&rel=0"
+                """<div class="yt"><iframe src="https://www.youtube.com/embed/${esc(spec.id)}?playsinline=1&rel=0&origin=https%3A%2F%2Fforocoches.com"
                    frameborder="0" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe></div>"""
             "video" ->
                 """<video src="${esc(spec.url)}" controls playsinline preload="metadata" style="width:100%;height:auto"></video>"""
