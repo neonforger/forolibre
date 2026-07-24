@@ -35,7 +35,8 @@ EXTERNO** (`openExternal`), nunca la capa web.
 ## Ficheros clave
 
 - `MainActivity.kt` — orquesta todos los paneles nativos (lista, hilo, respuesta/composer, login,
-  MPs, perfil ajeno, opciones, citas/menciones), navegación y el puente.
+  MPs, perfil ajeno, opciones, citas/menciones, **reportar** con overlay de Cloudflare), navegación
+  y el puente. Diálogo de reporte: `res/layout/dialog_report.xml`.
 - `assets/extractor.js` — motor de datos: `fcLoadThreadList`, `fcLoadThread`, `fcSubmitReply`,
   `fcCreateThread`, `fcEditPost`, `fcDeletePost`, `fcSearch`, `fcLoadOwnThreads`,
   `fcToggleFavorite`, `fcLoadPmInbox`/`fcLoadPm`/`fcSendPm`, `fcLoadMember`, `fcLogin`, etc.
@@ -52,9 +53,11 @@ EXTERNO** (`openExternal`), nunca la capa web.
 ### Git
 - Mensaje de commit: **siempre exactamente `cambios varios`**.
 - Firma: **`--no-gpg-sign`**. **NUNCA** añadas el trailer `Co-Authored-By`.
-- Push: **solo a `origin`** (`albertd987/forocoches-plus`). **NUNCA** al remoto `neonforger`
+- Push: **solo a `origin`** (`albertd987/forocoches-plus`; el repo se **movió a
+  `albertdom/forocoches-plus`**, la URL vieja redirige). **NUNCA** al remoto `neonforger`
   (forolibre): lleva un token embebido → si imprimes salida de git, sanitízala
-  (`sed 's/ghp_[A-Za-z0-9]\+/ghp_***/g'`).
+  (`sed -E 's/gh[pousr]_[A-Za-z0-9]+/***/g'`). (Excepción puntual: 2026-07-25 el dueño autorizó
+  explícitamente replicar la release en `neonforger` — no es lo habitual, la regla sigue vigente.)
 - **NUNCA merge a `main`.** La validación se hace repartiendo el APK/AAB a testers.
 - `keystore` / `keystore.properties` / `release.keystore` están gitignorados y deben seguir así.
 
@@ -109,8 +112,10 @@ suspenden timers/fetch y `evaluate` cuelga); filtra targets `chrome-error://` (o
   `.v2` es SOLO del buildType debug). Subir el AAB de release es una **actualización** de la app
   existente → **no reinicia** el closed testing (12 testers/14 días). NO crear una app nueva ni
   subir el paquete `.v2`.
-- `versionCode` debe ser **mayor** que el vivo en Play. Estado a 2026-07-23: subido a Play el 8;
-  el build.gradle está en **9 / 1.3.1**. Al preparar otro release, súbelo por encima del vivo.
+- `versionCode` debe ser **mayor** que el vivo en Play. Estado a 2026-07-25: en Play se han usado
+  códigos hasta el **10** (el registro anterior de "el 8" se quedó corto); el build.gradle está en
+  **11 / 1.3.2**. Al preparar otro release, sube el `versionCode` por encima del último usado en Play;
+  si Play rechaza con "código de versión ya usado", vuelve a subirlo (+1) y recompila el AAB.
 - `targetSdk`/`compileSdk` = **36** (Android 16, requisito de Play). AGP 8.2.2 es viejo (soporta
   hasta 34): compila con aviso silenciado por `android.suppressUnsupportedCompileSdk=36` en
   gradle.properties. Largo plazo: subir AGP a 8.9+ (arrastra Gradle 8.11.1+); no urge.
@@ -118,6 +123,12 @@ suspenden timers/fetch y `evaluate` cuelga); filtra targets `chrome-error://` (o
   `release.keystore`, `CN=Forocoches Plus`, SHA-256 `C7:CF:5E:6B:…:A1:5D`). Ya está copiada al
   worktree v2 (gitignorada). El release firma con ella; si falta, `bundleRelease` falla a propósito.
 - Generar el AAB: `./gradlew.bat bundleRelease` → `app/build/outputs/bundle/release/app-release.aab`.
+- `minifyEnabled false` en release → el release es el **mismo código** que el debug (sin ofuscar).
+  Por eso el dogfooding diario en debug transfiere al release.
+- **Release de GitHub** (v2 nativa): `v2.0.0` publicada en `albertdom/forocoches-plus` (origin) con el
+  APK de release adjunto (sideload, no el AAB). Crear con `gh release create <tag> -R
+  albertdom/forocoches-plus --target v2-shell --title … --notes-file … --latest <apk>`. La unicidad de
+  `versionCode` solo importa en Play; para sideload da igual.
 
 ---
 
@@ -147,8 +158,19 @@ suspenden timers/fetch y `evaluate` cuelga); filtra targets `chrome-error://` (o
     (`?_fp=Date.now()`). Aplicado en favoritos, MPs, member, etc.
 11. **Separador de miles**: hilos con ≥1.000 respuestas → `"1.680 @ usuario"` (no solo dígitos);
     tolera `[\d.,]+` en `parseSearchDoc`/`parseRow` o salen sin autor/contador.
-12. **`report.php` bloqueado por Cloudflare** (403 al fetch del motor) → el botón de reportar no es
-    viable sin navegación visible. Aplazado.
+12. **`report.php` tras Cloudflare INTERACTIVO** (casilla "Verifique que es un ser humano"): un
+    `fetch` del motor da 403 (no ejecuta el JS del challenge). RESUELTO en **Reportar**: WebView aparte
+    a pantalla completa **tapado por una capa nativa opaca** ("Enviando reporte…"); el cover solo se
+    BAJA cuando aparece el challenge para que el usuario pulse la casilla (única excepción de la regla
+    de oro) y vuelve a subir al caer el formulario. A veces NO sale CF (cf_clearance válida) y el form
+    llega directo → por eso el cover arranca ARRIBA y solo baja si `cf && !form`. Form real:
+    `report.php?do=sendemail` (POST), textarea `reason`=comentario, radio `tipo` (+18→6, Spam→1,
+    Troll→2, Flood→5, Contenido→3, Otros→4). Éxito: cerrar 2.5s tras `f.submit()` (el POST ya salió);
+    NO cargar el redirect a showthread (bajo el cover relanza CF y colgaba). Ver `startReportFlow`.
+13. **YouTube en FC = script, NO iframe/enlace**: un `<div id=NNN></div>` VACÍO + `<script>verVideo(
+    'IDVIDEO','NNN')</script>` que monta el iframe en runtime. Como parseamos estático, el ID solo vive
+    en el texto del script → `collectEmbeds` lo extrae con regex `verVideo(HD)?\('ID'`. CLAVE: quitar
+    los `<script>` del mensaje **DESPUÉS** de `collectEmbeds`, no antes (línea del pipeline en `fcLoadThread`).
 
 ## GOTCHAS de Android / UI
 
@@ -165,6 +187,16 @@ suspenden timers/fetch y `evaluate` cuelga); filtra targets `chrome-error://` (o
 - **WebView de embed en RecyclerView**: carga diferida 300ms (cancelada en `release()`), se libera
   en `onViewRecycled`. `mediaPlaybackRequiresUserGesture=true` (no autoplay; el play del propio
   reproductor reproduce inline).
+- **YouTube embed exige origen de TERCEROS**: `EmbedView` carga el iframe con
+  `loadDataWithBaseURL("https://forocoches.com", …)` + `&origin=…` en la src (NO youtube.com, o el
+  player da **error 150/152** por ser mismo-origen). X/IG/TikTok sí usan su propio dominio como base
+  (son `blockquote`+script, no un iframe directo).
+- **WebView OCLUIDO por una vista opaca → Chromium THROTTLEA el render** (`onVisibilityAggregated=false`)
+  y un challenge de Cloudflare se **CONGELA** (no se resuelve). Forzar `onVisibilityAggregated(true)`
+  NO basta. Por eso el cover del reporte se baja mientras el CF se resuelve (gotcha 12).
+- **WebView sin `WebViewClient` abre el NAVEGADOR EXTERNO** en una navegación de main-frame (el
+  redirect post-reporte a showthread lanzaba Chrome). Solución: `WebViewClient` con
+  `shouldOverrideUrlLoading → false` para que todo cargue dentro del WebView.
 
 ---
 
@@ -179,14 +211,24 @@ filtros, ignorados); **buscador**; **deslizar entre subforos**; **MPs nativos** 
 + compositor — envío verificado hasta el POST, sin mandar MP real); **perfil de OTRO usuario**
 nativo (mención → perfil, no Chrome); **enlaces FC no-hilo** → nativo o navegador externo (nunca la
 capa web); **embeds interactivos** de X/IG/TikTok/YouTube/vídeo (reproductor oficial que se despliega
-solo al aparecer el post y reproduce inline); deep links de notificaciones (hilo y MP) a vista nativa.
+solo al aparecer el post y reproduce inline); deep links de notificaciones (hilo y MP) a vista nativa;
+**reportar posts** (menú ⋮ de post ajeno → diálogo nativo con motivo + comentario contextual en
+"Otros"; Cloudflare interactivo tapado por capa nativa, gotcha 12); **comunidad de Telegram**
+(`t.me/foroplus`) + botón ☕ "Invítame a un café" (`paypal.me/neonforger`) en Opciones + **popup de
+bienvenida** una sola vez (pref `welcome_shown`).
+
+Sesión 2026-07-24/25: arreglado el **aviso de Play** "servicios en primer plano restringidos" (se
+quitó `BootReceiver`; el WorkManager periódico ya sobrevive al reinicio sin arrancar el FGS en boot,
+prohibido en Android 15/targetSdk 35+); arreglados los **embeds de YouTube** (gotcha 13 + error 150/152);
+añadido **reportar** (gotcha 12); publicada **release v2.0.0** en GitHub.
 
 ### Pendiente / no verificado
 - **Envío real de MP**: el POST se construye igual que `fcSubmitReply` (validado) pero no se ha
   mandado un MP real desde la app (falta que lo pruebe el dueño).
 - **Instagram embed**: `embed.js` es más estricto que X/TikTok — no verificado en un hilo real.
 - **Rendimiento** con MUCHOS embeds en un mismo hilo — no estresado.
-- **Botón reportar**: bloqueado por Cloudflare (gotcha 12).
+- **Reportar — éxito por temporizador**: se da por enviado 2.5s tras el POST; NO detecta fallos
+  (anti-flood / rate-limit de FC) → puede cantar "enviado ✓" en falso. Aceptado; endurecer si molesta.
 - **"Contacto" fantasma**: el enlace del pie de FC (`showthread t=8241760`) se cuela como fila en
   las listas nativas (`parseListDoc` no filtra el footer). Bug menor conocido, sin arreglar.
 
