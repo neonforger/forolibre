@@ -1333,7 +1333,6 @@ class MainActivity : AppCompatActivity() {
     private var reportCover: View? = null
 
     private fun submitReport(post: PostItem, reason: String, comment: String) {
-        android.util.Log.i("FC_REPORT", "report pid=${post.pid} reason=$reason")
         startReportFlow(post, reason, comment)
     }
 
@@ -1458,7 +1457,6 @@ class MainActivity : AppCompatActivity() {
     private fun onReportFormReady(post: PostItem, reason: String, comment: String) {
         // Formulario cargado → TAPAR ya para que el foro web no se vea mientras se auto-envía.
         reportCover?.visibility = View.VISIBLE
-        android.util.Log.i("FC_REPORT", "form ready pid=${post.pid} reason=$reason")
         val tipo = reportTipo[reason] ?: "4"
         // Se rellena el textarea 'reason', se marca el radio 'tipo' y se envía el form REAL (ya trae
         // securitytoken/s/postid…). No reimplementamos el POST: reutilizamos el form con su token.
