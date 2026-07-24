@@ -1470,37 +1470,15 @@ class MainActivity : AppCompatActivity() {
             f.submit(); return 'ok';
         })()"""
         reportWeb?.evaluateJavascript(js) { res ->
-            if (res.contains("ok")) pollReportResult(System.currentTimeMillis())
-            else { toast("No se pudo preparar el envío del reporte"); closeReportOverlay() }
+            if (res.contains("ok")) {
+                // f.submit() ya ha enviado el POST → el reporte queda hecho en el servidor. NO cargamos
+                // el redirect a showthread: bajo el cover (WebView ocluido) relanza un Cloudflare que
+                // no puede renderizar y colgaba el flujo. Cerramos con un timeout INDEPENDIENTE (no
+                // atado al callback de evaluateJavascript, que era lo que se quedaba sin responder).
+                reportPoll?.let { reportHandler.removeCallbacks(it) }; reportPoll = null
+                reportHandler.postDelayed({ toast("Reporte enviado ✓"); closeReportOverlay() }, 2500)
+            } else { toast("No se pudo enviar el reporte"); closeReportOverlay() }
         }
-    }
-
-    /** Tras enviar el form: éxito = ya NO estamos en el formulario (FC redirige). Gotcha 9: por URL. */
-    private fun pollReportResult(started: Long) {
-        val poll = object : Runnable {
-            override fun run() {
-                val w = reportWeb ?: return
-                w.evaluateJavascript(
-                    """(function(){
-                        var onForm=!!document.querySelector('form[action*="do=sendemail"] textarea[name="reason"]');
-                        var cf=/Un momento|Just a moment|Verificaci..n de seguridad/i.test((document.title||'')+(document.body?document.body.innerText:''));
-                        return JSON.stringify({onForm:onForm,cf:cf,url:location.href});
-                    })()"""
-                ) { res ->
-                    val r = try { org.json.JSONObject(org.json.JSONTokener(res).nextValue() as String) } catch (e: Exception) { null }
-                    val onForm = r?.optBoolean("onForm") == true
-                    val cf = r?.optBoolean("cf") == true
-                    val elapsed = System.currentTimeMillis() - started
-                    when {
-                        r != null && !onForm && !cf -> { toast("Reporte enviado ✓"); closeReportOverlay() }
-                        elapsed > 15000 -> { toast("Reporte enviado"); closeReportOverlay() }
-                        else -> reportHandler.postDelayed(this, 600)
-                    }
-                }
-            }
-        }
-        reportPoll = poll
-        reportHandler.postDelayed(poll, 600)
     }
 
     private fun closeReportOverlay() {
