@@ -1358,6 +1358,13 @@ class MainActivity : AppCompatActivity() {
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             settings.userAgentString = webView.settings.userAgentString
+            // Sin WebViewClient, el redirect post-reporte (a showthread) abriría CHROME. Este lo
+            // mantiene TODO dentro del WebView tapado (devolver false = lo carga el propio WebView).
+            webViewClient = object : android.webkit.WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: android.webkit.WebView, req: android.webkit.WebResourceRequest
+                ): Boolean = false
+            }
         }
         overlay.addView(wv, android.widget.FrameLayout.LayoutParams(-1, -1))
         val cover = buildReportCover(post)
