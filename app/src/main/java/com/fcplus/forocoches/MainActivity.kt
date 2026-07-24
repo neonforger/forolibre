@@ -202,6 +202,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREFS = "shell_prefs"
         private const val PREF_LAST_FID = "last_fid"
+        private const val PREF_WELCOME_SHOWN = "welcome_shown"
     }
 
     private fun buildListUrl(page: Int): String {
@@ -872,6 +873,29 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
         startNotificationPolling()
         if (NotificationRepository(this).isInstantEnabled()) NotificationService.start(this)
+        maybeShowWelcome()
+    }
+
+    /**
+     * Popup de bienvenida: se muestra UNA sola vez (primer arranque). Agradece e invita a la
+     * comunidad de Telegram. El "café" NO va aquí a propósito (queda en Opciones).
+     */
+    private fun maybeShowWelcome() {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        if (prefs.getBoolean(PREF_WELCOME_SHOWN, false)) return
+        prefs.edit().putBoolean(PREF_WELCOME_SHOWN, true).apply()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("¡Gracias por confiar en ForoPlus! 👋")
+            .setMessage(
+                "Soy un desarrollador independiente y hago esta app en mi tiempo libre, sin ánimo " +
+                "de lucro. Que la uses ya es la mejor recompensa. Si quieres estar al día y proponer " +
+                "mejoras, únete a la comunidad:"
+            )
+            .setPositiveButton("Unirme a la comunidad") { _, _ ->
+                openExternal("https://t.me/foroplus")
+            }
+            .setNegativeButton("Cerrar", null)
+            .show()
     }
 
     /**
@@ -983,6 +1007,13 @@ class MainActivity : AppCompatActivity() {
             },
             openUrl = { url -> openWeb(url) }
         )
+        // Comunidad y apoyo: enlaces EXTERNOS (Telegram / navegador), nunca la capa web.
+        optionsPanel.findViewById<View>(R.id.opt_telegram).setOnClickListener {
+            openExternal("https://t.me/foroplus")
+        }
+        optionsPanel.findViewById<View>(R.id.opt_coffee).setOnClickListener {
+            openExternal("https://paypal.me/neonforger")
+        }
         postAdapter.postTextSp = OptionsController.fontSp(getSharedPreferences(PREFS, MODE_PRIVATE))
         findViewById<View>(R.id.native_options).setOnClickListener { showOptions() }
         findViewById<View>(R.id.native_search).setOnClickListener { showSearchSheet() }

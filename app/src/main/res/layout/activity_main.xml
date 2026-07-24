@@ -824,6 +824,33 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:layout_marginTop="6dp" />
+
+                    <!-- Comunidad y apoyo -->
+                    <TextView style="@style/OptSection" android:text="Comunidad" />
+
+                    <TextView
+                        android:id="@+id/opt_telegram"
+                        style="@style/OptRow"
+                        android:text="💬  Comunidad en Telegram" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Únete al grupo para novedades y sugerencias."
+                        android:textSize="12sp"
+                        android:textColor="#9E9E9E" />
+
+                    <TextView
+                        android:id="@+id/opt_coffee"
+                        style="@style/OptRow"
+                        android:text="☕  Invítame a un café" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="ForoPlus es gratis y sin publicidad. Un café ayuda a mantenerla viva."
+                        android:textSize="12sp"
+                        android:textColor="#9E9E9E" />
                 </LinearLayout>
             </ScrollView>
         </LinearLayout>
