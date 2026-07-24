@@ -240,7 +240,8 @@ class PostAdapter(
         h.quote.setOnClickListener { onQuote(item) }
         paintMultiquote(h, isSelected(item.pid))
         h.multiquote.setOnClickListener { onMultiquoteToggle(item) }
-        h.menu.visibility = if (item.own) View.VISIBLE else View.GONE
+        // El ⋮ ahora aparece SIEMPRE: en posts propios da Editar/Borrar; en ajenos, Reportar.
+        h.menu.visibility = View.VISIBLE
         h.menu.setOnClickListener { onMenu(item, h.menu) }
     }
 

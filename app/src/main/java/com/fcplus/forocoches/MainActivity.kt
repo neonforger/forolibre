@@ -1272,16 +1272,229 @@ class MainActivity : AppCompatActivity() {
     /** Menú ⋮ de un post propio: editar o borrar. */
     private fun showPostMenu(post: PostItem, anchor: View) {
         val menu = androidx.appcompat.widget.PopupMenu(this, anchor)
-        menu.menu.add(0, 1, 0, "Editar")
-        menu.menu.add(0, 2, 1, "Borrar")
+        if (post.own) {
+            menu.menu.add(0, 1, 0, "Editar")
+            menu.menu.add(0, 2, 1, "Borrar")
+        } else {
+            menu.menu.add(0, 3, 0, "Reportar")
+        }
         menu.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1 -> { startEdit(post); true }
                 2 -> { confirmDelete(post); true }
+                3 -> { showReportDialog(post); true }
                 else -> false
             }
         }
         menu.show()
+    }
+
+    /**
+     * Diálogo NATIVO de reporte (replica report.php de FC: comentario + motivo). Al confirmar,
+     * el envío pasa el Cloudflare por un WebView tapado con capa nativa y auto-envía el form real.
+     */
+    private fun showReportDialog(post: PostItem) {
+        val view = layoutInflater.inflate(R.layout.dialog_report, null)
+        val comment = view.findViewById<EditText>(R.id.report_comment)
+        val group = view.findViewById<android.widget.RadioGroup>(R.id.report_reasons)
+        // Etiqueta FC de cada motivo: el auto-submit la empareja con el radio real del formulario.
+        val reasonLabels = mapOf(
+            R.id.reason_18 to "+18", R.id.reason_spam to "Spam", R.id.reason_troll to "Troll",
+            R.id.reason_flood to "Flood", R.id.reason_content to "Contenido", R.id.reason_other to "Otros"
+        )
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Reportar mensaje de ${post.author}")
+            .setView(view)
+            .setPositiveButton("Enviar reporte", null) // se sobreescribe abajo para validar sin cerrar
+            .setNegativeButton("Cancelar", null)
+            .create().apply {
+                setOnShowListener {
+                    getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val reason = reasonLabels[group.checkedRadioButtonId]
+                        if (reason == null) { toast("Elige un motivo"); return@setOnClickListener }
+                        dismiss()
+                        submitReport(post, reason, comment.text.toString().trim())
+                    }
+                }
+            }.show()
+    }
+
+    // ── Reporte: WebView invisible (tapado por capa nativa) que resuelve el Cloudflare ────────
+    private var reportOverlay: android.widget.FrameLayout? = null
+    private var reportWeb: android.webkit.WebView? = null
+    private var reportPoll: Runnable? = null
+    private var reportCover: View? = null
+
+    private fun submitReport(post: PostItem, reason: String, comment: String) {
+        android.util.Log.i("FC_REPORT", "report pid=${post.pid} reason=$reason")
+        startReportFlow(post, reason, comment)
+    }
+
+    /**
+     * report.php está tras un Cloudflare challenge por-ruta que un fetch NO puede resolver (solo un
+     * navegador VISIBLE que renderice). Truco: un WebView a pantalla completa que SÍ renderiza (así
+     * el challenge se resuelve) pero TAPADO por una capa nativa opaca → el usuario nunca ve el foro
+     * web (regla de oro). Cuando cae el formulario real, [FASE 3] se auto-rellena y envía.
+     */
+    private fun startReportFlow(post: PostItem, reason: String, comment: String) {
+        // El content FrameLayout (NO el LinearLayout vertical root_container): un hijo a pantalla
+        // completa se superpone limpiamente sin descolocar la barra inferior.
+        val root = findViewById<android.view.ViewGroup>(android.R.id.content)
+        val overlay = android.widget.FrameLayout(this)
+        val wv = object : android.webkit.WebView(this) {
+            // Chromium throttla el render de un WebView que Android considera NO visible; al taparlo
+            // con una capa opaca, onVisibilityAggregated pasa a false y el challenge de CF se congela.
+            // Forzamos "visible" para que siga renderizando por debajo del cover y resuelva el CF.
+            override fun onVisibilityAggregated(isVisible: Boolean) { super.onVisibilityAggregated(true) }
+        }.apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.userAgentString = webView.settings.userAgentString
+        }
+        overlay.addView(wv, android.widget.FrameLayout.LayoutParams(-1, -1))
+        val cover = buildReportCover(post)
+        // El cover arranca OCULTO: el WebView debe quedar VISIBLE para renderizar y resolver el
+        // Cloudflare (excepción permitida por la regla de oro). Al detectar el formulario se tapa
+        // (onReportFormReady) para que el foro web no llegue a verse.
+        cover.visibility = View.GONE
+        overlay.addView(cover, android.widget.FrameLayout.LayoutParams(-1, -1))
+        root.addView(overlay, android.view.ViewGroup.LayoutParams(-1, -1))
+        reportOverlay = overlay; reportWeb = wv; reportCover = cover
+
+        wv.loadUrl("https://forocoches.com/foro/report.php?do=report&p=${post.pid}")
+        // Sondea el estado cada 800 ms: ¿ya cayó el formulario (CF superado)?
+        val started = System.currentTimeMillis()
+        val poll = object : Runnable {
+            override fun run() {
+                val w = reportWeb ?: return
+                w.evaluateJavascript(
+                    """(function(){
+                        var b=document.body?document.body.innerText:'';
+                        var cf=/Un momento|Just a moment|Verificaci..n de seguridad/i.test((document.title||'')+b);
+                        var form=!!document.querySelector('textarea')&&/ENVIAR REPORTE|Motivo/i.test(b);
+                        return JSON.stringify({cf:cf,form:form});
+                    })()"""
+                ) { res ->
+                    // evaluateJavascript devuelve el valor JSON-codificado: primero se decodifica el
+                    // string exterior, luego se parsea el objeto.
+                    val r = try {
+                        val inner = org.json.JSONTokener(res).nextValue() as? String
+                        if (inner != null) org.json.JSONObject(inner) else null
+                    } catch (e: Exception) { null }
+                    val form = r?.optBoolean("form") == true
+                    val elapsed = System.currentTimeMillis() - started
+                    when {
+                        form -> onReportFormReady(post, reason, comment)
+                        // El Cloudflare de report.php es INTERACTIVO (casilla "Verifique que es un ser
+                        // humano"): el usuario la pulsa (única excepción de la regla de oro). Damos
+                        // margen amplio para que la resuelva; al caer el form se tapa y auto-envía.
+                        elapsed > 90000 -> { toast("No se pudo completar la verificación"); closeReportOverlay() }
+                        else -> reportHandler.postDelayed(this, 700)
+                    }
+                }
+            }
+        }
+        reportPoll = poll
+        reportHandler.postDelayed(poll, 1200)
+    }
+
+    private val reportHandler by lazy { android.os.Handler(mainLooper) }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** Capa nativa opaca que oculta el WebView del report (el usuario solo ve ESTO). */
+    private fun buildReportCover(post: PostItem): View {
+        val ll = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            isClickable = true; isFocusable = true // absorbe toques: no se toca el WebView de debajo
+            setPadding(dp(32), dp(32), dp(32), dp(32))
+        }
+        ll.addView(android.widget.ProgressBar(this))
+        ll.addView(android.widget.TextView(this).apply {
+            text = "Enviando reporte…"
+            setTextColor(0xFF1A1A1A.toInt())
+            textSize = 16f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, dp(18), 0, dp(6))
+        })
+        ll.addView(android.widget.TextView(this).apply {
+            text = "Verificando con ForoCoches"
+            setTextColor(0xFF9E9E9E.toInt())
+            textSize = 13f
+            gravity = android.view.Gravity.CENTER
+        })
+        val cancel = android.widget.TextView(this).apply {
+            text = "Cancelar"
+            setTextColor(0xFFC8102E.toInt())
+            textSize = 15f
+            setPadding(dp(20), dp(24), dp(20), dp(10))
+            setOnClickListener { closeReportOverlay() }
+        }
+        ll.addView(cancel)
+        return ll
+    }
+
+    // Motivo (etiqueta del diálogo) → valor del radio 'tipo' del form real de FC (verificado por CDP).
+    private val reportTipo = mapOf(
+        "+18" to "6", "Spam" to "1", "Troll" to "2", "Flood" to "5", "Contenido" to "3", "Otros" to "4"
+    )
+
+    private fun onReportFormReady(post: PostItem, reason: String, comment: String) {
+        // Formulario cargado → TAPAR ya para que el foro web no se vea mientras se auto-envía.
+        reportCover?.visibility = View.VISIBLE
+        android.util.Log.i("FC_REPORT", "form ready pid=${post.pid} reason=$reason")
+        val tipo = reportTipo[reason] ?: "4"
+        // Se rellena el textarea 'reason', se marca el radio 'tipo' y se envía el form REAL (ya trae
+        // securitytoken/s/postid…). No reimplementamos el POST: reutilizamos el form con su token.
+        val js = """(function(){
+            var f=document.querySelector('form[action*="do=sendemail"]')||document.querySelector('form');
+            if(!f) return 'no-form';
+            var ta=f.querySelector('textarea[name="reason"]'); if(ta) ta.value='${jsEscape(comment)}';
+            var r=f.querySelector('input[name="tipo"][value="$tipo"]'); if(!r) return 'no-tipo'; r.checked=true;
+            f.submit(); return 'ok';
+        })()"""
+        reportWeb?.evaluateJavascript(js) { res ->
+            if (res.contains("ok")) pollReportResult(System.currentTimeMillis())
+            else { toast("No se pudo preparar el envío del reporte"); closeReportOverlay() }
+        }
+    }
+
+    /** Tras enviar el form: éxito = ya NO estamos en el formulario (FC redirige). Gotcha 9: por URL. */
+    private fun pollReportResult(started: Long) {
+        val poll = object : Runnable {
+            override fun run() {
+                val w = reportWeb ?: return
+                w.evaluateJavascript(
+                    """(function(){
+                        var onForm=!!document.querySelector('form[action*="do=sendemail"] textarea[name="reason"]');
+                        var cf=/Un momento|Just a moment|Verificaci..n de seguridad/i.test((document.title||'')+(document.body?document.body.innerText:''));
+                        return JSON.stringify({onForm:onForm,cf:cf,url:location.href});
+                    })()"""
+                ) { res ->
+                    val r = try { org.json.JSONObject(org.json.JSONTokener(res).nextValue() as String) } catch (e: Exception) { null }
+                    val onForm = r?.optBoolean("onForm") == true
+                    val cf = r?.optBoolean("cf") == true
+                    val elapsed = System.currentTimeMillis() - started
+                    when {
+                        r != null && !onForm && !cf -> { toast("Reporte enviado ✓"); closeReportOverlay() }
+                        elapsed > 15000 -> { toast("Reporte enviado"); closeReportOverlay() }
+                        else -> reportHandler.postDelayed(this, 600)
+                    }
+                }
+            }
+        }
+        reportPoll = poll
+        reportHandler.postDelayed(poll, 600)
+    }
+
+    private fun closeReportOverlay() {
+        reportPoll?.let { reportHandler.removeCallbacks(it) }; reportPoll = null
+        reportWeb?.let { it.stopLoading(); it.loadUrl("about:blank"); it.destroy() }; reportWeb = null
+        reportOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; reportOverlay = null
+        reportCover = null
     }
 
     private fun startEdit(post: PostItem) {
@@ -2309,6 +2522,8 @@ class MainActivity : AppCompatActivity() {
      */
     private val onBackCallback = object : androidx.activity.OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
+            // El overlay de reporte tiene prioridad: atrás lo cancela.
+            if (reportOverlay != null) { closeReportOverlay(); return }
             // Salir de la pantalla completa de vídeo antes que nada.
             if (fullscreenView != null) { onEmbedFullscreen(null, null); return }
             if (isWebVisible) {
