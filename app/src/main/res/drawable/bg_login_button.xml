@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Botón principal del login: rojo FC con ripple y estado deshabilitado (mientras entra). -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#40FFFFFF">
+    <item>
+        <selector>
+            <item android:state_enabled="false">
+                <shape android:shape="rectangle">
+                    <solid android:color="#E8A4AE" />
+                    <corners android:radius="12dp" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#C8102E" />
+                    <corners android:radius="12dp" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+</ripple>

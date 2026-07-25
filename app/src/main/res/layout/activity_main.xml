@@ -1267,96 +1267,159 @@
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="vertical"
+                android:gravity="center_vertical"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp"
-                android:paddingTop="48dp"
-                android:paddingBottom="24dp">
+                android:paddingTop="32dp"
+                android:paddingBottom="32dp">
+
+                <ImageView
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:layout_gravity="center_horizontal"
+                    android:src="@mipmap/ic_launcher_round"
+                    android:contentDescription="ForoPlus" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center"
                     android:text="ForoPlus"
-                    android:textSize="30sp"
+                    android:textSize="32sp"
                     android:textStyle="bold"
+                    android:letterSpacing="-0.02"
                     android:textColor="#C8102E" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Inicia sesión con tu cuenta de ForoCoches"
+                    android:gravity="center"
+                    android:text="Entra con tu cuenta de ForoCoches"
                     android:textSize="14sp"
+                    android:textColor="#757575" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="34dp"
+                    android:text="Usuario"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
                     android:textColor="#616161" />
 
                 <EditText
                     android:id="@+id/login_user"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="32dp"
-                    android:hint="Usuario"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_login_input"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:gravity="center_vertical"
+                    android:hint="Tu nick del foro"
                     android:textColorHint="#9E9E9E"
                     android:textSize="15sp"
                     android:textColor="#212121"
                     android:inputType="text"
                     android:maxLines="1"
-                    android:importantForAutofill="no" />
+                    android:imeOptions="actionNext"
+                    android:autofillHints="username" />
 
-                <EditText
-                    android:id="@+id/login_pass"
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:hint="Contraseña"
-                    android:textColorHint="#9E9E9E"
-                    android:textSize="15sp"
-                    android:textColor="#212121"
-                    android:inputType="textPassword"
-                    android:maxLines="1"
-                    android:importantForAutofill="no" />
+                    android:layout_marginTop="16dp"
+                    android:text="Contraseña"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#616161" />
+
+                <!-- El ojo va como TextView dentro del FrameLayout: mismo idioma visual que
+                     el resto de paneles (nada de widgets Material sueltos). -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp">
+
+                    <EditText
+                        android:id="@+id/login_pass"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_login_input"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="84dp"
+                        android:gravity="center_vertical"
+                        android:hint="Tu contraseña"
+                        android:textColorHint="#9E9E9E"
+                        android:textSize="15sp"
+                        android:textColor="#212121"
+                        android:inputType="textPassword"
+                        android:maxLines="1"
+                        android:imeOptions="actionDone"
+                        android:autofillHints="password" />
+
+                    <TextView
+                        android:id="@+id/login_pass_toggle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:layout_gravity="end"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:gravity="center"
+                        android:text="Mostrar"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="#C8102E"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
+                </FrameLayout>
 
                 <TextView
                     android:id="@+id/login_error"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_login_error"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
                     android:textSize="13sp"
-                    android:textColor="#C8102E"
+                    android:lineSpacingExtra="2dp"
+                    android:textColor="#B3132C"
                     android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/login_submit"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="52dp"
                     android:layout_marginTop="22dp"
-                    android:paddingTop="13dp"
-                    android:paddingBottom="13dp"
                     android:gravity="center"
                     android:text="Iniciar sesión"
-                    android:textSize="15sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:textColor="#FFFFFF"
-                    android:background="#C8102E" />
+                    android:background="@drawable/bg_login_button" />
 
                 <TextView
                     android:id="@+id/login_skip"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="12dp"
                     android:gravity="center"
                     android:text="Seguir sin cuenta"
-                    android:textSize="14sp"
+                    android:textSize="15sp"
                     android:textColor="#616161"
-                    android:background="?attr/selectableItemBackground" />
+                    android:background="@drawable/bg_login_ghost" />
 
                 <TextView
                     android:id="@+id/login_register"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="18dp"
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:gravity="center"

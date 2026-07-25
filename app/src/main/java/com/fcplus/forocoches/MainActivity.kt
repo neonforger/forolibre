@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -159,10 +160,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loginPanel: View
     private lateinit var loginUser: android.widget.EditText
     private lateinit var loginPass: android.widget.EditText
+    private lateinit var loginPassToggle: TextView
     private lateinit var loginError: TextView
     private lateinit var loginSubmit: TextView
     private var isLoginVisible = false
     private var sendingLogin = false
+    private var passwordVisible = false
     private var pendingThreadUrl = ""      // hilo que pidió login (+HD invitado): se reabre al entrar
     private var pendingThreadTitle = ""
 
@@ -1758,10 +1761,21 @@ class MainActivity : AppCompatActivity() {
         loginPanel = findViewById(R.id.login_panel)
         loginUser = findViewById(R.id.login_user)
         loginPass = findViewById(R.id.login_pass)
+        loginPassToggle = findViewById(R.id.login_pass_toggle)
         loginError = findViewById(R.id.login_error)
         loginSubmit = findViewById(R.id.login_submit)
         loginSubmit.setOnClickListener { submitLogin() }
         findViewById<View>(R.id.login_skip).setOnClickListener { hideLogin() }
+        loginPassToggle.setOnClickListener { togglePasswordVisible() }
+        // Enter en la contraseña = pulsar "Iniciar sesión" (el teclado tapa el botón).
+        loginPass.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                submitLogin(); true
+            } else false
+        }
+        // El error de la vez anterior estorba en cuanto el usuario corrige algo.
+        loginUser.doAfterTextChanged { loginError.visibility = View.GONE }
+        loginPass.doAfterTextChanged { loginError.visibility = View.GONE }
         // Registro: fuera de la app (navegador del sistema); el foro nunca se ve dentro.
         findViewById<View>(R.id.login_register).setOnClickListener {
             try {
@@ -1787,7 +1801,36 @@ class MainActivity : AppCompatActivity() {
         profilePanel.visibility = View.GONE
         bottomNav.visibility = View.GONE   // pantalla de escritura: teclado a pantalla limpia
         loginError.visibility = View.GONE
+        // Si un intento anterior se quedó colgado (motor caído), el botón seguía en
+        // "Entrando…" y sendingLogin bloqueaba el siguiente envío para siempre.
+        sendingLogin = false
+        loginSubmit.isEnabled = true
+        loginSubmit.text = "Iniciar sesión"
+        setPasswordVisible(false)
         loginUser.requestFocus()
+        // Teclado ya abierto: aquí solo se viene a escribir.
+        loginUser.post {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(loginUser, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun togglePasswordVisible() = setPasswordVisible(!passwordVisible)
+
+    /**
+     * Ver/ocultar la contraseña. Cambiar `inputType` manda el cursor al inicio y encima
+     * pone la fuente monoespaciada, así que se restauran los dos a mano.
+     */
+    private fun setPasswordVisible(visible: Boolean) {
+        passwordVisible = visible
+        val sel = loginPass.selectionEnd
+        val face = loginPass.typeface
+        loginPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            if (visible) android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            else android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        loginPass.typeface = face
+        loginPass.setSelection(sel.coerceIn(0, loginPass.text.length))
+        loginPassToggle.text = if (visible) "Ocultar" else "Mostrar"
     }
 
     private fun hideLogin() {
@@ -1813,25 +1856,34 @@ class MainActivity : AppCompatActivity() {
         val user = loginUser.text.toString().trim()
         val pass = loginPass.text.toString()
         if (user.isEmpty() || pass.isEmpty()) {
-            loginError.text = "Rellena usuario y contraseña"
-            loginError.visibility = View.VISIBLE
+            showLoginError(if (user.isEmpty()) "Escribe tu usuario" else "Escribe tu contraseña")
+            (if (user.isEmpty()) loginUser else loginPass).requestFocus()
             return
         }
         if (!engineReady) {
-            loginError.text = "Conectando con el foro… prueba en unos segundos"
-            loginError.visibility = View.VISIBLE
+            showLoginError("Conectando con el foro… prueba en unos segundos")
             return
         }
+        // Con el teclado fuera se ve el botón en "Entrando…" y el error si lo hay.
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(loginPanel.windowToken, 0)
         sendingLogin = true
         loginError.visibility = View.GONE
+        loginSubmit.isEnabled = false
         loginSubmit.text = "Entrando…"
         webView.evaluateJavascript(
             "window.fcLogin&&fcLogin('${jsEscape(user)}','${jsEscape(pass)}')", null
         )
     }
 
+    private fun showLoginError(msg: String) {
+        loginError.text = msg
+        loginError.visibility = View.VISIBLE
+    }
+
     private fun onLoginResult(json: String) {
         sendingLogin = false
+        loginSubmit.isEnabled = true
         loginSubmit.text = "Iniciar sesión"
         var err = ""
         try {
@@ -1842,12 +1894,16 @@ class MainActivity : AppCompatActivity() {
         // no distingue invitado de logueado — esqueleto idéntico).
         val ok = isLoggedIn()
         if (!ok) {
-            loginError.text = when {
-                err == "cloudflare" -> "ForoCoches está pidiendo verificación. Inténtalo de nuevo en un momento."
-                err.isNotEmpty() -> err
-                else -> "Usuario o contraseña incorrectos"
-            }
-            loginError.visibility = View.VISIBLE
+            // Vaciar ANTES de pintar el error: el watcher de los campos lo oculta.
+            loginPass.setText("")
+            loginPass.requestFocus()
+            showLoginError(
+                when {
+                    err == "cloudflare" -> "ForoCoches está pidiendo verificación. Inténtalo de nuevo en un momento."
+                    err.isNotEmpty() -> err
+                    else -> "Usuario o contraseña incorrectos"
+                }
+            )
             return
         }
         // Dentro. Persistimos cookies ya y refrescamos todo con la sesión nueva.
