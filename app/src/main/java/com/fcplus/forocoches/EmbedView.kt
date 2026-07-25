@@ -104,6 +104,12 @@ class EmbedView(context: Context) : FrameLayout(context) {
             // play del propio reproductor (un gesto del usuario), inline. Sin audio al scrollear.
             settings.mediaPlaybackRequiresUserGesture = true
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            // Los embeds sociales (tweet, IG, TikTok, botón "Ver en YouTube") abren el enlace con
+            // target="_blank"/window.open() DESDE SU PROPIO IFRAME: no es una navegación de
+            // main-frame, así que shouldOverrideUrlLoading NO la ve. Sin esto el WebView traga el
+            // popup en silencio y el tap "no hace nada". Con multi-ventana + onCreateWindow abajo
+            // capturamos la URL destino y la mandamos a la app/navegador externo.
+            settings.setSupportMultipleWindows(true)
             setBackgroundColor(Color.WHITE)
             addJavascriptInterface(HeightBridge(), "AndroidEmbed")
             webViewClient = object : android.webkit.WebViewClient() {
@@ -114,17 +120,7 @@ class EmbedView(context: Context) : FrameLayout(context) {
                     view: WebView, req: android.webkit.WebResourceRequest
                 ): Boolean {
                     if (!req.isForMainFrame) return false
-                    val u = req.url.toString()
-                    if (u.startsWith("http")) {
-                        try {
-                            context.startActivity(
-                                android.content.Intent(android.content.Intent.ACTION_VIEW, req.url)
-                                    .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
-                            )
-                        } catch (_: Exception) {}
-                        return true
-                    }
-                    return false
+                    return openExternal(req.url.toString())
                 }
             }
             webChromeClient = object : WebChromeClient() {
@@ -132,11 +128,49 @@ class EmbedView(context: Context) : FrameLayout(context) {
                     onFullscreen?.invoke(view, callback)
                 }
                 override fun onHideCustomView() { onFullscreen?.invoke(null, null) }
+
+                // El widget abre el enlace en una ventana nueva (target="_blank"/window.open).
+                // No creamos ventana real: montamos un WebView efímero solo para que su
+                // shouldOverrideUrlLoading nos entregue la URL destino, la lanzamos fuera y lo
+                // destruimos. Así el tap en el tweet/vídeo salta a la app o al navegador.
+                override fun onCreateWindow(
+                    view: WebView?, isDialog: Boolean, isUserGesture: Boolean,
+                    resultMsg: android.os.Message?
+                ): Boolean {
+                    val href = view?.hitTestResult?.extra
+                    if (href != null && openExternal(href)) return false
+                    val tmp = WebView(context.applicationContext)
+                    tmp.webViewClient = object : android.webkit.WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            v: WebView, r: android.webkit.WebResourceRequest
+                        ): Boolean {
+                            openExternal(r.url.toString())
+                            v.destroy()
+                            return true
+                        }
+                    }
+                    val transport = resultMsg?.obj as? WebView.WebViewTransport
+                    transport?.webView = tmp
+                    resultMsg?.sendToTarget()
+                    return true
+                }
             }
         }
         web = w
         addView(w)
         w.loadDataWithBaseURL(baseUrlFor(spec.kind), pageHtml(spec), "text/html", "UTF-8", null)
+    }
+
+    /** Lanza [url] fuera de la app (app nativa de la plataforma o navegador). true si era http(s). */
+    private fun openExternal(url: String): Boolean {
+        if (!url.startsWith("http")) return false
+        try {
+            context.startActivity(
+                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+            )
+        } catch (_: Exception) {}
+        return true
     }
 
     private inner class HeightBridge {
