@@ -34,6 +34,9 @@ import java.util.concurrent.Executors
 data class PostItem(
     val pid: String,
     val author: String,
+    // UID real del autor (para abrir su perfil al tocar nombre/avatar). "" si es
+    // anónimo/baneado o FC no lo expuso → sin perfil clicable.
+    val uid: String,
     val avatar: String,
     val date: String,
     val html: String,
@@ -68,6 +71,7 @@ fun parseThreadPayload(json: String): ThreadPayload? {
                 PostItem(
                     pid = pid,
                     author = o.optString("author").trim(),
+                    uid = o.optString("uid").trim(),
                     avatar = o.optString("avatar").trim(),
                     date = o.optString("date").trim(),
                     html = o.optString("html"),
@@ -151,6 +155,8 @@ class PostAdapter(
     private val isSelected: (String) -> Boolean = { false },
     // Menú ⋮ de un post propio (editar / borrar). El View es el ancla del popup.
     private val onMenu: (PostItem, View) -> Unit = { _, _ -> },
+    // Tocar el nombre/avatar del autor → su perfil nativo. Solo se invoca con uid válido.
+    private val onAuthorClick: (PostItem) -> Unit = {},
     // Pantalla completa de vídeo de un embed: lo gestiona el Activity anfitrión.
     private val onEmbedFullscreen: (View?, android.webkit.WebChromeClient.CustomViewCallback?) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<PostAdapter.Holder>() {
@@ -234,6 +240,14 @@ class PostAdapter(
         h.boundPid = item.pid
         h.author.text = if (item.author.isNotEmpty()) "@${item.author}" else "(anónimo)"
         h.date.text = item.date
+        // Nombre y avatar abren el perfil ajeno, pero solo si conocemos el uid real
+        // (anónimos/baneados quedan sin clic, sin gestos fantasma).
+        val hasProfile = item.uid.isNotEmpty()
+        val authorClick = if (hasProfile) View.OnClickListener { onAuthorClick(item) } else null
+        h.author.setOnClickListener(authorClick)
+        h.avatar.setOnClickListener(authorClick)
+        h.author.isClickable = hasProfile
+        h.avatar.isClickable = hasProfile
         bindAvatar(h, item)
         renderContent(h, item)
         bindEmbeds(h, item)

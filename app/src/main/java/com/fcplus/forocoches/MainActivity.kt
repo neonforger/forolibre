@@ -889,9 +889,9 @@ class MainActivity : AppCompatActivity() {
             .setMessage(
                 "Soy un desarrollador independiente y hago esta app en mi tiempo libre, sin ánimo " +
                 "de lucro. Que la uses ya es la mejor recompensa. Si quieres estar al día y proponer " +
-                "mejoras, únete a la comunidad:"
+                "mejoras, únete a nuestra comunidad de Telegram."
             )
-            .setPositiveButton("Unirme a la comunidad") { _, _ ->
+            .setPositiveButton("Abrir el Telegram") { _, _ ->
                 openExternal("https://t.me/foroplus")
             }
             .setNegativeButton("Cerrar", null)
@@ -1122,6 +1122,8 @@ class MainActivity : AppCompatActivity() {
             onMultiquoteToggle = { post -> toggleMultiquote(post) },
             isSelected = { pid -> replyQuotes.containsKey(pid) },
             onMenu = { post, anchor -> showPostMenu(post, anchor) },
+            // Nombre/avatar del autor → su perfil nativo (uid real del HTML crudo).
+            onAuthorClick = { post -> if (post.uid.isNotEmpty()) showMemberProfile(post.uid) },
             onEmbedFullscreen = { view, cb -> onEmbedFullscreen(view, cb) }
         )
         val lm = LinearLayoutManager(this)

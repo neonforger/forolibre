@@ -37,8 +37,16 @@
   }
 
   function inMenu(a) {
-    // El menú de perfil (oculto) también contiene enlaces showthread: fuera.
-    return !!(a.closest && a.closest('.user-profile-menu-container, .header-container'));
+    // Enlaces showthread que NO son hilos: "chrome" de FC presente en cada página. Los hilos
+    // reales viven en .threads-list (forumdisplay) o el threadbit clásico (subscription.php);
+    // estos contenedores nunca los envuelven. Verificado por CDP (2026-07-25):
+    //   · menú de perfil/ajustes → .user-profile-menu-container / #user-profile-menu / #full-window
+    //   · banners "notice" (p.ej. "Fold8 y Flip8… para shurs") → #notices-wrapper / .navbar_notice
+    //   · pie de página (p.ej. "Contacto") → footer / #footer-wrapper
+    return !!(a.closest && a.closest(
+      '.user-profile-menu-container, .header-container, #user-profile-menu, #full-window, ' +
+      '#notices-wrapper, .navbar_notice, footer, #footer-wrapper'
+    ));
   }
 
   // ── Helpers de envío de formularios (crear/editar/borrar) ───────────────────
@@ -434,6 +442,14 @@
           var pid = pmEl ? pmEl.id.replace('postmenu_', '') : '';
           var auEl = pmEl ? pmEl.querySelector('a[href*="member.php"]') : null;
           var author = auEl ? auEl.textContent.trim() : '';
+          // UID real del autor. FC enmascara a u=0 en el DOM VIVO por JS, pero el HTML
+          // crudo que trae fetch conserva el uid real en el href → perfil ajeno sin
+          // peticiones extra. Ver gotcha #1 (la excepción del enlace de mención).
+          var uid = '';
+          if (auEl) {
+            var um = (auEl.getAttribute('href') || '').match(/[?&]u=(\d+)/);
+            if (um && um[1] !== '0') uid = um[1];
+          }
           var msg = wrap.querySelector('[id^="post_message_"]');
           if (!msg || !pid) return;
 
@@ -480,7 +496,7 @@
             !!wrap.querySelector('a[href*="editpost.php"]');
 
           posts.push({
-            pid: pid, author: author, avatar: avatar, date: date,
+            pid: pid, author: author, uid: uid, avatar: avatar, date: date,
             html: m.innerHTML, own: !!own, embeds: embeds
           });
         });

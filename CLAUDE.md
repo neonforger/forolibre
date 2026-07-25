@@ -191,6 +191,15 @@ suspenden timers/fetch y `evaluate` cuelga); filtra targets `chrome-error://` (o
   `loadDataWithBaseURL("https://forocoches.com", …)` + `&origin=…` en la src (NO youtube.com, o el
   player da **error 150/152** por ser mismo-origen). X/IG/TikTok sí usan su propio dominio como base
   (son `blockquote`+script, no un iframe directo).
+- **Pulsar un embed para saltar a su app/navegador → `window.open`, NO main-frame**: al tocar el
+  tweet/"Watch on X"/"Ver en YouTube" el widget abre el enlace con `target="_blank"`/`window.open()`
+  **desde su propio iframe**. Eso NO pasa por `shouldOverrideUrlLoading` (solo ve main-frame) sino
+  por `WebChromeClient.onCreateWindow`, y encima exige `settings.setSupportMultipleWindows(true)`.
+  Sin ambos, el WebView **traga el popup en silencio** y el tap "no hace nada". RESUELTO en
+  `EmbedView`: multi-ventana ON + `onCreateWindow` que saca la URL (por `hitTestResult.extra` si es
+  un `<a>`, o con un WebView efímero para `window.open`) y la lanza fuera con `openExternal` (intent
+  `ACTION_VIEW`+`BROWSABLE`). Verificado en dispositivo: el tap dispara `START … cmp=com.twitter.
+  android/…` y abre la app de X. El play inline no se ve afectado (no usa `window.open`).
 - **WebView OCLUIDO por una vista opaca → Chromium THROTTLEA el render** (`onVisibilityAggregated=false`)
   y un challenge de Cloudflare se **CONGELA** (no se resuelve). Forzar `onVisibilityAggregated(true)`
   NO basta. Por eso el cover del reporte se baja mientras el CF se resuelve (gotcha 12).
