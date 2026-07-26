@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -159,10 +160,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loginPanel: View
     private lateinit var loginUser: android.widget.EditText
     private lateinit var loginPass: android.widget.EditText
+    private lateinit var loginPassToggle: TextView
     private lateinit var loginError: TextView
     private lateinit var loginSubmit: TextView
     private var isLoginVisible = false
     private var sendingLogin = false
+    private var passwordVisible = false
+    private var kenBurns: android.animation.ObjectAnimator? = null
     private var pendingThreadUrl = ""      // hilo que pidió login (+HD invitado): se reabre al entrar
     private var pendingThreadTitle = ""
 
@@ -447,6 +451,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -683,6 +688,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         profilePanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
         bottomNav.visibility = View.VISIBLE
@@ -725,6 +731,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
@@ -764,6 +771,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
@@ -1758,10 +1766,21 @@ class MainActivity : AppCompatActivity() {
         loginPanel = findViewById(R.id.login_panel)
         loginUser = findViewById(R.id.login_user)
         loginPass = findViewById(R.id.login_pass)
+        loginPassToggle = findViewById(R.id.login_pass_toggle)
         loginError = findViewById(R.id.login_error)
         loginSubmit = findViewById(R.id.login_submit)
         loginSubmit.setOnClickListener { submitLogin() }
         findViewById<View>(R.id.login_skip).setOnClickListener { hideLogin() }
+        loginPassToggle.setOnClickListener { togglePasswordVisible() }
+        // Enter en la contraseña = pulsar "Iniciar sesión" (el teclado tapa el botón).
+        loginPass.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                submitLogin(); true
+            } else false
+        }
+        // El error de la vez anterior estorba en cuanto el usuario corrige algo.
+        loginUser.doAfterTextChanged { loginError.visibility = View.GONE }
+        loginPass.doAfterTextChanged { loginError.visibility = View.GONE }
         // Registro: fuera de la app (navegador del sistema); el foro nunca se ve dentro.
         findViewById<View>(R.id.login_register).setOnClickListener {
             try {
@@ -1780,6 +1799,7 @@ class MainActivity : AppCompatActivity() {
         isNoticesVisible = false
         isProfileVisible = false
         loginPanel.visibility = View.VISIBLE
+        setLoginChrome(true)
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
@@ -1787,7 +1807,85 @@ class MainActivity : AppCompatActivity() {
         profilePanel.visibility = View.GONE
         bottomNav.visibility = View.GONE   // pantalla de escritura: teclado a pantalla limpia
         loginError.visibility = View.GONE
+        // Si un intento anterior se quedó colgado (motor caído), el botón seguía en
+        // "Entrando…" y sendingLogin bloqueaba el siguiente envío para siempre.
+        sendingLogin = false
+        loginSubmit.isEnabled = true
+        loginSubmit.text = "Iniciar sesión"
+        setPasswordVisible(false)
         loginUser.requestFocus()
+        // Teclado ya abierto: aquí solo se viene a escribir.
+        loginUser.post {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(loginUser, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /**
+     * El login es la única pantalla oscura de la app. La franja de la barra de estado es el
+     * padding del `root_container`, que es BLANCO: sin teñirla queda una banda blanca encima
+     * del fondo negro. Se tiñe al entrar y se devuelve a blanco al salir, junto con el color
+     * de los iconos del sistema (oscuros sobre blanco, claros sobre negro).
+     */
+    private fun setLoginChrome(dark: Boolean) {
+        val root = findViewById<View>(R.id.root_container)
+        root.setBackgroundColor(if (dark) 0xFF0D0A0B.toInt() else android.graphics.Color.WHITE)
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+        if (dark) startLoginKenBurns() else stopLoginKenBurns()
+    }
+
+    /**
+     * Zoom lentísimo sobre la foto del login (Ken Burns). Se PARA al salir del panel: si no,
+     * el animator seguiría girando con la pantalla en otra pantalla, gastando CPU para nada.
+     * Respeta el ajuste de "escala de animación" del sistema (si el usuario las apagó, no anima).
+     */
+    private fun startLoginKenBurns() {
+        if (kenBurns != null) return
+        val bg = findViewById<android.widget.ImageView>(R.id.login_bg)
+        val scale = try {
+            android.provider.Settings.Global.getFloat(
+                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            )
+        } catch (_: Exception) { 1f }
+        if (scale <= 0f) return
+        kenBurns = android.animation.ObjectAnimator.ofPropertyValuesHolder(
+            bg,
+            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.12f),
+            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.12f)
+        ).apply {
+            duration = 20000
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            interpolator = android.view.animation.LinearInterpolator()
+            start()
+        }
+    }
+
+    private fun stopLoginKenBurns() {
+        kenBurns?.cancel()
+        kenBurns = null
+        findViewById<android.widget.ImageView>(R.id.login_bg).apply { scaleX = 1f; scaleY = 1f }
+    }
+
+    private fun togglePasswordVisible() = setPasswordVisible(!passwordVisible)
+
+    /**
+     * Ver/ocultar la contraseña. Cambiar `inputType` manda el cursor al inicio y encima
+     * pone la fuente monoespaciada, así que se restauran los dos a mano.
+     */
+    private fun setPasswordVisible(visible: Boolean) {
+        passwordVisible = visible
+        val sel = loginPass.selectionEnd
+        val face = loginPass.typeface
+        loginPass.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            if (visible) android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            else android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        loginPass.typeface = face
+        loginPass.setSelection(sel.coerceIn(0, loginPass.text.length))
+        loginPassToggle.text = if (visible) "Ocultar" else "Mostrar"
     }
 
     private fun hideLogin() {
@@ -1795,6 +1893,7 @@ class MainActivity : AppCompatActivity() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(loginPanel.windowToken, 0)
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         bottomNav.visibility = View.VISIBLE
         pendingThreadUrl = ""
         pendingThreadTitle = ""
@@ -1813,25 +1912,34 @@ class MainActivity : AppCompatActivity() {
         val user = loginUser.text.toString().trim()
         val pass = loginPass.text.toString()
         if (user.isEmpty() || pass.isEmpty()) {
-            loginError.text = "Rellena usuario y contraseña"
-            loginError.visibility = View.VISIBLE
+            showLoginError(if (user.isEmpty()) "Escribe tu usuario" else "Escribe tu contraseña")
+            (if (user.isEmpty()) loginUser else loginPass).requestFocus()
             return
         }
         if (!engineReady) {
-            loginError.text = "Conectando con el foro… prueba en unos segundos"
-            loginError.visibility = View.VISIBLE
+            showLoginError("Conectando con el foro… prueba en unos segundos")
             return
         }
+        // Con el teclado fuera se ve el botón en "Entrando…" y el error si lo hay.
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(loginPanel.windowToken, 0)
         sendingLogin = true
         loginError.visibility = View.GONE
+        loginSubmit.isEnabled = false
         loginSubmit.text = "Entrando…"
         webView.evaluateJavascript(
             "window.fcLogin&&fcLogin('${jsEscape(user)}','${jsEscape(pass)}')", null
         )
     }
 
+    private fun showLoginError(msg: String) {
+        loginError.text = msg
+        loginError.visibility = View.VISIBLE
+    }
+
     private fun onLoginResult(json: String) {
         sendingLogin = false
+        loginSubmit.isEnabled = true
         loginSubmit.text = "Iniciar sesión"
         var err = ""
         try {
@@ -1842,12 +1950,16 @@ class MainActivity : AppCompatActivity() {
         // no distingue invitado de logueado — esqueleto idéntico).
         val ok = isLoggedIn()
         if (!ok) {
-            loginError.text = when {
-                err == "cloudflare" -> "ForoCoches está pidiendo verificación. Inténtalo de nuevo en un momento."
-                err.isNotEmpty() -> err
-                else -> "Usuario o contraseña incorrectos"
-            }
-            loginError.visibility = View.VISIBLE
+            // Vaciar ANTES de pintar el error: el watcher de los campos lo oculta.
+            loginPass.setText("")
+            loginPass.requestFocus()
+            showLoginError(
+                when {
+                    err == "cloudflare" -> "ForoCoches está pidiendo verificación. Inténtalo de nuevo en un momento."
+                    err.isNotEmpty() -> err
+                    else -> "Usuario o contraseña incorrectos"
+                }
+            )
             return
         }
         // Dentro. Persistimos cookies ya y refrescamos todo con la sesión nueva.
@@ -1856,6 +1968,7 @@ class MainActivity : AppCompatActivity() {
         loginPass.setText("")
         isLoginVisible = false
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         bottomNav.visibility = View.VISIBLE
         toast("Sesión iniciada")
         listLoaded = false
@@ -2235,6 +2348,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -2258,6 +2372,7 @@ class MainActivity : AppCompatActivity() {
         nativePanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -2278,6 +2393,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -2495,6 +2611,13 @@ class MainActivity : AppCompatActivity() {
         // Persiste las cookies de sesión a disco para que el NotificationWorker en
         // background no haga el fetch deslogueado.
         CookieManager.getInstance().flush()
+        // El zoom del login no tiene por qué seguir animando con la app en segundo plano.
+        stopLoginKenBurns()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isLoginVisible) startLoginKenBurns()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
