@@ -166,6 +166,7 @@ class MainActivity : AppCompatActivity() {
     private var isLoginVisible = false
     private var sendingLogin = false
     private var passwordVisible = false
+    private var kenBurns: android.animation.ObjectAnimator? = null
     private var pendingThreadUrl = ""      // hilo que pidió login (+HD invitado): se reabre al entrar
     private var pendingThreadTitle = ""
 
@@ -1833,6 +1834,40 @@ class MainActivity : AppCompatActivity() {
             isAppearanceLightStatusBars = !dark
             isAppearanceLightNavigationBars = !dark
         }
+        if (dark) startLoginKenBurns() else stopLoginKenBurns()
+    }
+
+    /**
+     * Zoom lentísimo sobre la foto del login (Ken Burns). Se PARA al salir del panel: si no,
+     * el animator seguiría girando con la pantalla en otra pantalla, gastando CPU para nada.
+     * Respeta el ajuste de "escala de animación" del sistema (si el usuario las apagó, no anima).
+     */
+    private fun startLoginKenBurns() {
+        if (kenBurns != null) return
+        val bg = findViewById<android.widget.ImageView>(R.id.login_bg)
+        val scale = try {
+            android.provider.Settings.Global.getFloat(
+                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            )
+        } catch (_: Exception) { 1f }
+        if (scale <= 0f) return
+        kenBurns = android.animation.ObjectAnimator.ofPropertyValuesHolder(
+            bg,
+            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.12f),
+            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.12f)
+        ).apply {
+            duration = 20000
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            interpolator = android.view.animation.LinearInterpolator()
+            start()
+        }
+    }
+
+    private fun stopLoginKenBurns() {
+        kenBurns?.cancel()
+        kenBurns = null
+        findViewById<android.widget.ImageView>(R.id.login_bg).apply { scaleX = 1f; scaleY = 1f }
     }
 
     private fun togglePasswordVisible() = setPasswordVisible(!passwordVisible)
@@ -2576,6 +2611,13 @@ class MainActivity : AppCompatActivity() {
         // Persiste las cookies de sesión a disco para que el NotificationWorker en
         // background no haga el fetch deslogueado.
         CookieManager.getInstance().flush()
+        // El zoom del login no tiene por qué seguir animando con la app en segundo plano.
+        stopLoginKenBurns()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isLoginVisible) startLoginKenBurns()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

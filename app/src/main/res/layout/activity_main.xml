@@ -1257,13 +1257,33 @@
         <!-- Capa LOGIN nativa (Fase 3): formulario propio. Las credenciales las envía
              fcLogin por el form real de FC (same-origin, cookies del WebView), pero el
              usuario nunca ve el foro por debajo. -->
-        <ScrollView
+        <FrameLayout
             android:id="@+id/login_panel"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@drawable/bg_login_bg"
-            android:fillViewport="true"
+            android:background="#0D0A0B"
             android:visibility="gone">
+
+            <!-- Foto de fondo. Va en un ImageView y no como "background" porque solo el
+                 scaleType centerCrop recorta sin deformar; un background la estiraría. -->
+            <ImageView
+                android:id="@+id/login_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:src="@drawable/login_bg_photo"
+                android:importantForAccessibility="no"
+                android:contentDescription="@null" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_login_scrim" />
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -1440,7 +1460,8 @@
                     android:textColor="#7E7476"
                     android:background="?attr/selectableItemBackground" />
             </LinearLayout>
-        </ScrollView>
+            </ScrollView>
+        </FrameLayout>
 
         <!-- Capa web (la app clásica, también motor de datos cuando está oculta) -->
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout

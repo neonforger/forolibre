@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Velo sobre la foto del login. Flojo arriba (ahí el cielo ya es negro y la marca se lee sola)
+  y fuerte de la mitad para abajo, que es donde cae el coche y donde van los campos: sin esto
+  el texto se pelea con la chapa y los reflejos.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="270"
+        android:startColor="#59080606"
+        android:centerColor="#CC080606"
+        android:centerY="0.5"
+        android:endColor="#F0080606" />
+</shape>
