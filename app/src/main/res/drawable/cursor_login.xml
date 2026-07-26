@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cursor de los campos del login. Explícito porque el del tema es azul/verde y sobre el
+     fondo oscuro canta; con "@null" hay móviles donde directamente no se ve. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <size android:width="2dp" />
+    <solid android:color="#FD5D4D" />
+</shape>

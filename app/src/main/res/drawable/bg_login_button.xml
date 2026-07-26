@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Botón principal del login: rojo FC con ripple y estado deshabilitado (mientras entra). -->
+<!--
+  Botón principal del login. El texto va en negro sobre el coral a propósito: blanco sobre
+  #FD5D4D se queda en 3:1 de contraste y no llega a AA; en negro sube a 5,6:1 y se lee.
+-->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="#40FFFFFF">
+    android:color="#33000000">
     <item>
         <selector>
             <item android:state_enabled="false">
                 <shape android:shape="rectangle">
-                    <solid android:color="#E8A4AE" />
+                    <solid android:color="#6B3A34" />
                     <corners android:radius="12dp" />
                 </shape>
             </item>
             <item>
                 <shape android:shape="rectangle">
-                    <solid android:color="#C8102E" />
+                    <solid android:color="#FD5D4D" />
                     <corners android:radius="12dp" />
                 </shape>
             </item>

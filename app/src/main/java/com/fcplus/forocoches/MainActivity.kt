@@ -450,6 +450,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -686,6 +687,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         profilePanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
         bottomNav.visibility = View.VISIBLE
@@ -728,6 +730,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
@@ -767,6 +770,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         swipeRefresh.visibility = View.INVISIBLE
@@ -1794,6 +1798,7 @@ class MainActivity : AppCompatActivity() {
         isNoticesVisible = false
         isProfileVisible = false
         loginPanel.visibility = View.VISIBLE
+        setLoginChrome(true)
         nativePanel.visibility = View.GONE
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
@@ -1812,6 +1817,21 @@ class MainActivity : AppCompatActivity() {
         loginUser.post {
             val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.showSoftInput(loginUser, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /**
+     * El login es la única pantalla oscura de la app. La franja de la barra de estado es el
+     * padding del `root_container`, que es BLANCO: sin teñirla queda una banda blanca encima
+     * del fondo negro. Se tiñe al entrar y se devuelve a blanco al salir, junto con el color
+     * de los iconos del sistema (oscuros sobre blanco, claros sobre negro).
+     */
+    private fun setLoginChrome(dark: Boolean) {
+        val root = findViewById<View>(R.id.root_container)
+        root.setBackgroundColor(if (dark) 0xFF0D0A0B.toInt() else android.graphics.Color.WHITE)
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
         }
     }
 
@@ -1838,6 +1858,7 @@ class MainActivity : AppCompatActivity() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(loginPanel.windowToken, 0)
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         bottomNav.visibility = View.VISIBLE
         pendingThreadUrl = ""
         pendingThreadTitle = ""
@@ -1912,6 +1933,7 @@ class MainActivity : AppCompatActivity() {
         loginPass.setText("")
         isLoginVisible = false
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         bottomNav.visibility = View.VISIBLE
         toast("Sesión iniciada")
         listLoaded = false
@@ -2291,6 +2313,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -2314,6 +2337,7 @@ class MainActivity : AppCompatActivity() {
         nativePanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE
@@ -2334,6 +2358,7 @@ class MainActivity : AppCompatActivity() {
         threadPanel.visibility = View.GONE
         replyPanel.visibility = View.GONE
         loginPanel.visibility = View.GONE
+        setLoginChrome(false)
         noticesPanel.visibility = View.GONE
         profilePanel.visibility = View.GONE
         optionsPanel.visibility = View.GONE

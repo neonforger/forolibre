@@ -1261,7 +1261,7 @@
             android:id="@+id/login_panel"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#FFFFFF"
+            android:background="@drawable/bg_login_bg"
             android:fillViewport="true"
             android:visibility="gone">
 
@@ -1270,46 +1270,55 @@
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:gravity="center_vertical"
-                android:paddingStart="28dp"
-                android:paddingEnd="28dp"
+                android:paddingStart="26dp"
+                android:paddingEnd="26dp"
                 android:paddingTop="32dp"
                 android:paddingBottom="32dp">
 
-                <ImageView
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:layout_gravity="center_horizontal"
-                    android:src="@mipmap/ic_launcher_round"
-                    android:contentDescription="ForoPlus" />
+                <!-- Marca en dos piezas para que "Plus" lleve el coral. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Foro"
+                        android:textSize="34sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="-0.03"
+                        android:textColor="#FFFFFF" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Plus"
+                        android:textSize="34sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="-0.03"
+                        android:textColor="#FD5D4D" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:gravity="center"
-                    android:text="ForoPlus"
-                    android:textSize="32sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="-0.02"
-                    android:textColor="#C8102E" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="8dp"
                     android:gravity="center"
                     android:text="Entra con tu cuenta de ForoCoches"
-                    android:textSize="14sp"
-                    android:textColor="#757575" />
+                    android:textSize="13sp"
+                    android:textColor="#A79C9F" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="34dp"
-                    android:text="Usuario"
-                    android:textSize="13sp"
+                    android:text="USUARIO"
+                    android:textSize="12sp"
                     android:textStyle="bold"
-                    android:textColor="#616161" />
+                    android:letterSpacing="0.06"
+                    android:textColor="#A79C9F" />
 
                 <EditText
                     android:id="@+id/login_user"
@@ -1321,9 +1330,10 @@
                     android:paddingEnd="14dp"
                     android:gravity="center_vertical"
                     android:hint="Tu nick del foro"
-                    android:textColorHint="#9E9E9E"
+                    android:textColorHint="#7C7275"
                     android:textSize="15sp"
-                    android:textColor="#212121"
+                    android:textColor="#F2ECED"
+                    android:textCursorDrawable="@drawable/cursor_login"
                     android:inputType="text"
                     android:maxLines="1"
                     android:imeOptions="actionNext"
@@ -1332,11 +1342,12 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="Contraseña"
-                    android:textSize="13sp"
+                    android:layout_marginTop="18dp"
+                    android:text="CONTRASEÑA"
+                    android:textSize="12sp"
                     android:textStyle="bold"
-                    android:textColor="#616161" />
+                    android:letterSpacing="0.06"
+                    android:textColor="#A79C9F" />
 
                 <!-- El ojo va como TextView dentro del FrameLayout: mismo idioma visual que
                      el resto de paneles (nada de widgets Material sueltos). -->
@@ -1354,9 +1365,10 @@
                         android:paddingEnd="84dp"
                         android:gravity="center_vertical"
                         android:hint="Tu contraseña"
-                        android:textColorHint="#9E9E9E"
+                        android:textColorHint="#7C7275"
                         android:textSize="15sp"
-                        android:textColor="#212121"
+                        android:textColor="#F2ECED"
+                        android:textCursorDrawable="@drawable/cursor_login"
                         android:inputType="textPassword"
                         android:maxLines="1"
                         android:imeOptions="actionDone"
@@ -1371,9 +1383,9 @@
                         android:paddingEnd="14dp"
                         android:gravity="center"
                         android:text="Mostrar"
-                        android:textSize="13sp"
+                        android:textSize="12sp"
                         android:textStyle="bold"
-                        android:textColor="#C8102E"
+                        android:textColor="#FD5D4D"
                         android:background="?attr/selectableItemBackgroundBorderless" />
                 </FrameLayout>
 
@@ -1389,19 +1401,19 @@
                     android:paddingBottom="10dp"
                     android:textSize="13sp"
                     android:lineSpacingExtra="2dp"
-                    android:textColor="#B3132C"
+                    android:textColor="#FF9D93"
                     android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/login_submit"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
-                    android:layout_marginTop="22dp"
+                    android:layout_marginTop="24dp"
                     android:gravity="center"
                     android:text="Iniciar sesión"
                     android:textSize="16sp"
                     android:textStyle="bold"
-                    android:textColor="#FFFFFF"
+                    android:textColor="#1A0B08"
                     android:background="@drawable/bg_login_button" />
 
                 <TextView
@@ -1412,7 +1424,7 @@
                     android:gravity="center"
                     android:text="Seguir sin cuenta"
                     android:textSize="15sp"
-                    android:textColor="#616161"
+                    android:textColor="#C9BFC1"
                     android:background="@drawable/bg_login_ghost" />
 
                 <TextView
@@ -1425,7 +1437,7 @@
                     android:gravity="center"
                     android:text="¿No tienes cuenta? Regístrate"
                     android:textSize="13sp"
-                    android:textColor="#9E9E9E"
+                    android:textColor="#7E7476"
                     android:background="?attr/selectableItemBackground" />
             </LinearLayout>
         </ScrollView>

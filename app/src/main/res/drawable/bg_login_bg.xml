@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fondo del login: negro con un resplandor coral saliendo por abajo (faros en el asfalto).
+  Vectorial a propósito — pesa 0 KB y escala a cualquier pantalla. Si algún día se pone una
+  FOTO, se sustituye este item por el bitmap y se deja el degradado de arriba como velo.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0D0A0B" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="1.0"
+                android:gradientRadius="90%p"
+                android:startColor="#8CFD5D4D"
+                android:endColor="#000D0A0B" />
+        </shape>
+    </item>
+</layer-list>
