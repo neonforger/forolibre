@@ -1306,7 +1306,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Foro"
-                        android:textSize="34sp"
+                        android:textSize="48sp"
                         android:textStyle="bold"
                         android:letterSpacing="-0.03"
                         android:textColor="#FFFFFF" />
@@ -1315,7 +1315,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Plus"
-                        android:textSize="34sp"
+                        android:textSize="48sp"
                         android:textStyle="bold"
                         android:letterSpacing="-0.03"
                         android:textColor="#FD5D4D" />
@@ -1327,7 +1327,7 @@
                     android:layout_marginTop="8dp"
                     android:gravity="center"
                     android:text="Entra con tu cuenta de ForoCoches"
-                    android:textSize="15sp"
+                    android:textSize="20sp"
                     android:textColor="#A79C9F" />
 
                 <TextView
@@ -1428,7 +1428,7 @@
                     android:id="@+id/login_submit"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="44dp"
                     android:gravity="center"
                     android:text="Iniciar sesión"
                     android:textSize="18sp"
